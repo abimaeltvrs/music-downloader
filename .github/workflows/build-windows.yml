@@ -1,0 +1,41 @@
+
+name: Build Music Downloader Windows
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Baixar codigo
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-studio.txt
+
+      - name: Instalar dependencias
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-studio.txt
+          pip install pyinstaller
+
+      - name: Gerar executavel
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --onedir --windowed --name MusicDownloader --collect-all demucs --collect-all torch main.py
+
+      - name: Publicar programa
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicDownloader-Windows
+          path: dist/MusicDownloader/
+          if-no-files-found: error
