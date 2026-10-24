@@ -16,9 +16,17 @@ import customtkinter as ctk
 
 # Locate bundled FFmpeg tools in a PyInstaller onedir build.
 _BUNDLE = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
-_BIN = _BUNDLE / 'bin'
-if _BIN.is_dir():
-    os.environ['PATH'] = str(_BIN) + os.pathsep + os.environ.get('PATH', '')
+# PyInstaller --onedir stores bundled data in _internal on recent versions.
+# Search both the frozen bundle and executable folder for portable tools.
+_CANDIDATE_BINS = [
+    _BUNDLE / 'bin',
+    Path(sys.executable).resolve().parent / 'bin',
+    Path(__file__).resolve().parent / 'bin',
+]
+for _bin_dir in _CANDIDATE_BINS:
+    if (_bin_dir / 'ffmpeg.exe').is_file():
+        os.environ['PATH'] = str(_bin_dir) + os.pathsep + os.environ.get('PATH', '')
+        break
 
 ctk.set_appearance_mode('dark')
 ctk.set_default_color_theme('blue')
