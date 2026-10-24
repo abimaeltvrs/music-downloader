@@ -96,6 +96,7 @@ class App(ctk.CTk):
         self.output_var = tk.StringVar(value=self.settings['output'])
         self.url_var = tk.StringVar(value='')
         self.link_format = tk.StringVar(value='MP3')
+        self.link_playlist = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value='Pronto para converter arquivos autorizados.')
         self.build_shell()
         self.show_page('Conversor')
@@ -106,7 +107,7 @@ class App(ctk.CTk):
         self.sidebar.pack(side='left', fill='y')
         self.sidebar.pack_propagate(False)
         ctk.CTkLabel(self.sidebar, text='♫  MUSIC', font=('Segoe UI', 25, 'bold'), text_color=WHITE).pack(anchor='w', padx=22, pady=(28, 0))
-        ctk.CTkLabel(self.sidebar, text='DOWNLOADER  •  V1.3.1', font=('Segoe UI', 10), text_color=MUTED).pack(anchor='w', padx=24, pady=(0, 38))
+        ctk.CTkLabel(self.sidebar, text='DOWNLOADER  •  V1.3.2', font=('Segoe UI', 10), text_color=MUTED).pack(anchor='w', padx=24, pady=(0, 38))
         for name, symbol in [('Conversor', '↪'), ('Studio DJ', '🎚'), ('Links', '↓'), ('Biblioteca', '♫'), ('Histórico', '◷'), ('Configurações', '⚙')]:
             ctk.CTkButton(self.sidebar, text=f'{symbol}   {name}', height=43, anchor='w', fg_color='transparent', hover_color='#223754', command=lambda n=name: self.show_page(n)).pack(fill='x', padx=12, pady=4)
         ctk.CTkLabel(self.sidebar, text='WINDOWS DESKTOP', text_color=MUTED, font=('Segoe UI', 10)).pack(side='bottom', pady=24)
@@ -203,6 +204,7 @@ class App(ctk.CTk):
             ctk.CTkEntry(panel, textvariable=self.url_var, height=42).pack(fill='x', padx=20)
             ctk.CTkLabel(panel, text='Formato de saida', text_color=WHITE).pack(anchor='w', padx=20, pady=(15, 8))
             ctk.CTkOptionMenu(panel, values=['MP3', 'MP4', 'WAV'], variable=self.link_format, fg_color='#253A5A').pack(anchor='w', padx=20)
+            ctk.CTkCheckBox(panel, text='Baixar playlist inteira (quando permitido)', variable=self.link_playlist, fg_color=ACCENT).pack(anchor='w', padx=20, pady=(12, 0))
             ctk.CTkLabel(panel, text='Pasta de destino', text_color=WHITE).pack(anchor='w', padx=20, pady=(15, 8))
             ctk.CTkEntry(panel, textvariable=self.output_var).pack(fill='x', padx=20)
             ctk.CTkButton(panel, text='Escolher pasta', command=self.pick_output).pack(anchor='w', padx=20, pady=12)
@@ -211,10 +213,10 @@ class App(ctk.CTk):
             ctk.CTkLabel(self.content, textvariable=self.status_var, text_color=MUTED, wraplength=700).pack(anchor='w', pady=10)
             ctk.CTkLabel(self.content, text='Links podem falhar se o site restringir downloads. A API oficial do YouTube nao fornece extracao livre em MP3.', text_color=MUTED, wraplength=700).pack(anchor='w')
         elif page == 'Biblioteca':
-            self.header('Biblioteca musical', 'Arquivos convertidos recentemente.')
+            self.header('Biblioteca musical', 'Arquivos convertidos, baixados e separados recentemente.')
             self.records(self.history[:40], show_open=True)
         elif page == 'Histórico':
-            self.header('Histórico', 'Registro das conversões realizadas.')
+            self.header('Histórico', 'Registro das conversões, downloads e separações.')
             self.records(self.history, show_open=False)
         else:
             self.header('Configurações', 'Preferências do Music Downloader.')
@@ -222,7 +224,7 @@ class App(ctk.CTk):
             ctk.CTkEntry(self.content, textvariable=self.output_var, height=42).pack(fill='x', pady=10)
             ctk.CTkButton(self.content, text='Selecionar pasta', command=self.pick_output, fg_color=ACCENT).pack(anchor='w')
             ctk.CTkLabel(self.content, text='FFmpeg: ' + ('detectado' if shutil.which('ffmpeg') else 'não encontrado no pacote/PATH'), text_color=MUTED).pack(anchor='w', pady=30)
-            ctk.CTkLabel(self.content, text='Conversão local. Esta versão não realiza downloads de sites.', text_color=MUTED).pack(anchor='w')
+            ctk.CTkLabel(self.content, text='Downloads por link disponíveis na aba Links, para conteúdos autorizados.', text_color=MUTED).pack(anchor='w')
 
     def file_summary(self):
         if not self.files:
@@ -269,30 +271,79 @@ class App(ctk.CTk):
         self.had_error = False
         self.busy = True
         self.link_button.configure(state='disabled')
-        threading.Thread(target=self.link_worker, args=(url, folder, self.link_format.get()), daemon=True).start()
+        threading.Thread(target=self.link_worker, args=(url, folder, self.link_format.get(), self.link_playlist.get()), daemon=True).start()
 
-    def link_worker(self, url, folder, fmt):
+    def link_worker(self, url, folder, fmt, playlist):
+        """Record completed files, including individual items from playlists."""
         try:
             import yt_dlp
             ffmpeg_path = shutil.which('ffmpeg')
+            finished = {}
+
+            def remember(info):
+                if not isinstance(info, dict):
+                    return
+                ident = str(info.get('id') or '')
+                filename = info.get('filepath') or info.get('_filename')
+                if not filename:
+                    downloads = info.get('requested_downloads') or []
+                    if downloads:
+                        filename = downloads[0].get('filepath')
+                if filename:
+                    finished[ident or str(filename)] = (dict(info), str(filename))
+
+            def postprocess_hook(data):
+                if data.get('status') == 'finished':
+                    remember(data.get('info_dict'))
+
             options = {
                 'outtmpl': str(folder / '%(title).180B [%(id)s].%(ext)s'),
-                'noplaylist': True,
+                'noplaylist': not playlist,
                 'ffmpeg_location': str(Path(ffmpeg_path).parent),
                 'quiet': True,
                 'no_warnings': True,
+                'postprocessor_hooks': [postprocess_hook],
+                'ignoreerrors': False,
             }
             if fmt == 'MP4':
-                options['format'] = 'bv*+ba/b'
+                options['format'] = 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b'
                 options['merge_output_format'] = 'mp4'
             else:
                 options['format'] = 'bestaudio/best'
                 options['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': fmt.lower(), 'preferredquality': '320' if fmt == 'MP3' else '0'}]
-            self.events.put(('status', 'Obtendo arquivo autorizado. Aguarde...'))
+            self.events.put(('status', 'Baixando conteúdo autorizado; arquivos longos podem demorar...'))
             with yt_dlp.YoutubeDL(options) as ydl:
                 info = ydl.extract_info(url, download=True)
-                title = info.get('title', 'Arquivo') if isinstance(info, dict) else 'Arquivo'
-            self.events.put(('status', 'Download concluido: ' + title))
+                entries = (info.get('entries') or []) if isinstance(info, dict) and info.get('_type') == 'playlist' else [info]
+                for item in entries:
+                    if not isinstance(item, dict):
+                        continue
+                    ident = str(item.get('id') or '')
+                    if ident not in finished:
+                        remember(item)
+                    # Use yt-dlp's filename template as fallback, including post-conversion extension.
+                    if ident not in finished:
+                        guessed = Path(ydl.prepare_filename(item)).with_suffix('.' + fmt.lower())
+                        finished[ident or str(guessed)] = (item, str(guessed))
+            count = 0
+            for item, filename in finished.values():
+                output = Path(filename)
+                if fmt != 'MP4':
+                    output = output.with_suffix('.' + fmt.lower())
+                elif output.suffix.lower() != '.mp4':
+                    output = output.with_suffix('.mp4')
+                if not output.is_file():
+                    continue
+                self.events.put(('success', {
+                    'source': item.get('webpage_url') or url,
+                    'output': str(output), 'format': fmt + ' • Link',
+                    'date': datetime.now().strftime('%d/%m/%Y %H:%M'),
+                    'cut': None,
+                }))
+                count += 1
+            if count == 0:
+                raise RuntimeError('Download finalizado, mas não foi possível localizar os arquivos para registrar. Confira a pasta de destino.')
+            self.events.put(('status', f'{count} arquivo(s) baixado(s) e registrado(s).'))
         except Exception as exc:
             self.events.put(('error', str(exc)))
         finally:
