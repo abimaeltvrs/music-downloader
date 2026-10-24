@@ -1,3 +1,4 @@
+
 name: Build Music Downloader Windows
 
 on:
@@ -25,7 +26,6 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-studio.txt pyinstaller
 
-     
       - name: Baixar FFmpeg portatil
         shell: pwsh
         run: |
@@ -37,26 +37,29 @@ jobs:
 
           foreach ($name in @('ffmpeg.exe', 'ffprobe.exe')) {
             $file = Get-ChildItem -Path ffmpeg-download -Filter $name -Recurse -File | Select-Object -First 1
-            if (-not $file) { throw "Arquivo ausente: $name" }
+            if (-not $file) {
+              throw "Arquivo ausente: $name"
+            }
             Copy-Item $file.FullName (Join-Path bin $name)
           }
 
           Get-ChildItem bin
 
-
       - name: Gerar executavel com FFmpeg
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name MusicDownloader --collect-all demucs --collect-all torch --add-binary "bin/ffmpeg.exe;bin" --add-binary "bin/ffprobe.exe;bin" --add-binary "bin/ffplay.exe;bin" main.py
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name MusicDownloader --collect-all demucs --collect-all torch --add-binary "bin/ffmpeg.exe;bin" --add-binary "bin/ffprobe.exe;bin" main.py
 
       - name: Verificar FFmpeg no pacote
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($name in @('ffmpeg.exe', 'ffprobe.exe', 'ffplay.exe')) {
+          foreach ($name in @('ffmpeg.exe', 'ffprobe.exe')) {
             $path = Join-Path 'dist/MusicDownloader/_internal/bin' $name
-            if (-not (Test-Path $path)) { throw "FALHA: $path nao encontrado" }
+            if (-not (Test-Path $path)) {
+              throw "FALHA: $path nao encontrado"
+            }
             Write-Host "OK: $path"
           }
 
