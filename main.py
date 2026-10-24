@@ -20,6 +20,8 @@ _BUNDLE = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
 # Search both the frozen bundle and executable folder for portable tools.
 _CANDIDATE_BINS = [
     _BUNDLE / 'bin',
+    _BUNDLE,
+    Path(sys.executable).resolve().parent / '_internal' / 'bin',
     Path(sys.executable).resolve().parent / 'bin',
     Path(__file__).resolve().parent / 'bin',
 ]
@@ -99,7 +101,7 @@ class App(ctk.CTk):
         self.sidebar.pack(side='left', fill='y')
         self.sidebar.pack_propagate(False)
         ctk.CTkLabel(self.sidebar, text='♫  MUSIC', font=('Segoe UI', 25, 'bold'), text_color=WHITE).pack(anchor='w', padx=22, pady=(28, 0))
-        ctk.CTkLabel(self.sidebar, text='DOWNLOADER  •  V1.2', font=('Segoe UI', 10), text_color=MUTED).pack(anchor='w', padx=24, pady=(0, 38))
+        ctk.CTkLabel(self.sidebar, text='DOWNLOADER  •  V1.2.2', font=('Segoe UI', 10), text_color=MUTED).pack(anchor='w', padx=24, pady=(0, 38))
         for name, symbol in [('Conversor', '↪'), ('Studio DJ', '🎚'), ('Biblioteca', '♫'), ('Histórico', '◷'), ('Configurações', '⚙')]:
             ctk.CTkButton(self.sidebar, text=f'{symbol}   {name}', height=43, anchor='w', fg_color='transparent', hover_color='#223754', command=lambda n=name: self.show_page(n)).pack(fill='x', padx=12, pady=4)
         ctk.CTkLabel(self.sidebar, text='WINDOWS DESKTOP', text_color=MUTED, font=('Segoe UI', 10)).pack(side='bottom', pady=24)
@@ -199,7 +201,7 @@ class App(ctk.CTk):
             ctk.CTkLabel(self.content, text='Pasta padrão para conversões', text_color=WHITE).pack(anchor='w')
             ctk.CTkEntry(self.content, textvariable=self.output_var, height=42).pack(fill='x', pady=10)
             ctk.CTkButton(self.content, text='Selecionar pasta', command=self.pick_output, fg_color=ACCENT).pack(anchor='w')
-            ctk.CTkLabel(self.content, text='FFmpeg: ' + ('detectado' if shutil.which('ffmpeg') else 'não encontrado no PATH'), text_color=MUTED).pack(anchor='w', pady=30)
+            ctk.CTkLabel(self.content, text='FFmpeg: ' + ('detectado' if shutil.which('ffmpeg') else 'não encontrado no pacote/PATH'), text_color=MUTED).pack(anchor='w', pady=30)
             ctk.CTkLabel(self.content, text='Conversão local. Esta versão não realiza downloads de sites.', text_color=MUTED).pack(anchor='w')
 
     def file_summary(self):
