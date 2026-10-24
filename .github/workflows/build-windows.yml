@@ -25,19 +25,24 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-studio.txt pyinstaller
 
+     
       - name: Baixar FFmpeg portatil
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.zip' -OutFile ffmpeg.zip
+          $url = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
+          Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
           Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg-download -Force
           New-Item -ItemType Directory -Path bin -Force | Out-Null
-          foreach ($name in @('ffmpeg.exe', 'ffprobe.exe', 'ffplay.exe')) {
+
+          foreach ($name in @('ffmpeg.exe', 'ffprobe.exe')) {
             $file = Get-ChildItem -Path ffmpeg-download -Filter $name -Recurse -File | Select-Object -First 1
-            if (-not $file) { throw "Arquivo ausente no pacote: $name" }
+            if (-not $file) { throw "Arquivo ausente: $name" }
             Copy-Item $file.FullName (Join-Path bin $name)
           }
+
           Get-ChildItem bin
+
 
       - name: Gerar executavel com FFmpeg
         shell: pwsh
