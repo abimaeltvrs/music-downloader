@@ -129,7 +129,7 @@ class App(ctk.CTk):
             options.grid_columnconfigure((0, 1), weight=1)
             cut = ctk.CTkFrame(self.content, fg_color=PANEL, corner_radius=16)
             cut.pack(fill='x', pady=(0, 15))
-            ctk.CTkCheckBox(cut, text='Ativar corte de áudio (antes de salvar)', variable=self.trim_enabled, text_color=WHITE, progress_color=ACCENT).pack(anchor='w', padx=20, pady=(14, 7))
+            ctk.CTkCheckBox(cut, text='Ativar corte de áudio (antes de salvar)', variable=self.trim_enabled, text_color=WHITE, fg_color=ACCENT).pack(anchor='w', padx=20, pady=(14, 7))
             cut_row = ctk.CTkFrame(cut, fg_color='transparent')
             cut_row.pack(fill='x', padx=20, pady=(0, 8))
             ctk.CTkLabel(cut_row, text='Início').pack(side='left', padx=(0, 8))
