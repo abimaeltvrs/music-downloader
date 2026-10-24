@@ -7,6 +7,7 @@ import queue
 import shutil
 import subprocess
 import threading
+import atexit
 from datetime import datetime
 from pathlib import Path
 import tkinter as tk
@@ -75,6 +76,7 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title('Music Downloader | Desktop Edition')
+        self.preview_path = None
         self.geometry('1080x750')
         self.minsize(850, 560)
         self.configure(fg_color=BG)
@@ -83,6 +85,7 @@ class App(ctk.CTk):
         self.files = []
         self.events = queue.Queue()
         self.busy = False
+        self.had_error = False
         self.format_var = tk.StringVar(value='MP3')
         self.bitrate_var = tk.StringVar(value='320')
         self.trim_enabled = tk.BooleanVar(value=False)
@@ -91,6 +94,8 @@ class App(ctk.CTk):
         self.trim_start = tk.StringVar(value='00:00')
         self.trim_end = tk.StringVar(value='')
         self.output_var = tk.StringVar(value=self.settings['output'])
+        self.url_var = tk.StringVar(value='')
+        self.link_format = tk.StringVar(value='MP3')
         self.status_var = tk.StringVar(value='Pronto para converter arquivos autorizados.')
         self.build_shell()
         self.show_page('Conversor')
@@ -101,8 +106,8 @@ class App(ctk.CTk):
         self.sidebar.pack(side='left', fill='y')
         self.sidebar.pack_propagate(False)
         ctk.CTkLabel(self.sidebar, text='♫  MUSIC', font=('Segoe UI', 25, 'bold'), text_color=WHITE).pack(anchor='w', padx=22, pady=(28, 0))
-        ctk.CTkLabel(self.sidebar, text='DOWNLOADER  •  V1.2.2', font=('Segoe UI', 10), text_color=MUTED).pack(anchor='w', padx=24, pady=(0, 38))
-        for name, symbol in [('Conversor', '↪'), ('Studio DJ', '🎚'), ('Biblioteca', '♫'), ('Histórico', '◷'), ('Configurações', '⚙')]:
+        ctk.CTkLabel(self.sidebar, text='DOWNLOADER  •  V1.3.1', font=('Segoe UI', 10), text_color=MUTED).pack(anchor='w', padx=24, pady=(0, 38))
+        for name, symbol in [('Conversor', '↪'), ('Studio DJ', '🎚'), ('Links', '↓'), ('Biblioteca', '♫'), ('Histórico', '◷'), ('Configurações', '⚙')]:
             ctk.CTkButton(self.sidebar, text=f'{symbol}   {name}', height=43, anchor='w', fg_color='transparent', hover_color='#223754', command=lambda n=name: self.show_page(n)).pack(fill='x', padx=12, pady=4)
         ctk.CTkLabel(self.sidebar, text='WINDOWS DESKTOP', text_color=MUTED, font=('Segoe UI', 10)).pack(side='bottom', pady=24)
         self.content = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
@@ -190,6 +195,21 @@ class App(ctk.CTk):
             self.stem_progress.set(0)
             ctk.CTkLabel(self.content, textvariable=self.status_var, text_color=MUTED, wraplength=680).pack(anchor='w')
             ctk.CTkLabel(self.content, text='Requer Demucs e FFmpeg. A primeira execução pode baixar o modelo de IA. O processamento pode levar vários minutos.', text_color=MUTED, wraplength=680).pack(anchor='w', pady=(16, 0))
+        elif page == 'Links':
+            self.header('Download por link', 'Somente videos proprios ou com download autorizado pela plataforma.')
+            panel = ctk.CTkFrame(self.content, fg_color=PANEL, corner_radius=16)
+            panel.pack(fill='x', pady=12)
+            ctk.CTkLabel(panel, text='URL do video', text_color=WHITE).pack(anchor='w', padx=20, pady=(20, 8))
+            ctk.CTkEntry(panel, textvariable=self.url_var, height=42).pack(fill='x', padx=20)
+            ctk.CTkLabel(panel, text='Formato de saida', text_color=WHITE).pack(anchor='w', padx=20, pady=(15, 8))
+            ctk.CTkOptionMenu(panel, values=['MP3', 'MP4', 'WAV'], variable=self.link_format, fg_color='#253A5A').pack(anchor='w', padx=20)
+            ctk.CTkLabel(panel, text='Pasta de destino', text_color=WHITE).pack(anchor='w', padx=20, pady=(15, 8))
+            ctk.CTkEntry(panel, textvariable=self.output_var).pack(fill='x', padx=20)
+            ctk.CTkButton(panel, text='Escolher pasta', command=self.pick_output).pack(anchor='w', padx=20, pady=12)
+            self.link_button = ctk.CTkButton(panel, text='BAIXAR CONTEUDO AUTORIZADO', height=45, command=self.start_link_download)
+            self.link_button.pack(fill='x', padx=20, pady=(5, 18))
+            ctk.CTkLabel(self.content, textvariable=self.status_var, text_color=MUTED, wraplength=700).pack(anchor='w', pady=10)
+            ctk.CTkLabel(self.content, text='Links podem falhar se o site restringir downloads. A API oficial do YouTube nao fornece extracao livre em MP3.', text_color=MUTED, wraplength=700).pack(anchor='w')
         elif page == 'Biblioteca':
             self.header('Biblioteca musical', 'Arquivos convertidos recentemente.')
             self.records(self.history[:40], show_open=True)
@@ -225,6 +245,59 @@ class App(ctk.CTk):
             if label is not None and label.winfo_exists():
                 label.configure(text=self.file_summary())
 
+    def start_link_download(self):
+        if self.busy:
+            return
+        url = self.url_var.get().strip()
+        if not url.startswith(('https://', 'http://')):
+            messagebox.showwarning('Link invalido', 'Informe uma URL HTTP ou HTTPS valida.')
+            return
+        if not shutil.which('ffmpeg'):
+            messagebox.showerror('FFmpeg', 'FFmpeg nao encontrado no pacote.')
+            return
+        try:
+            import yt_dlp  # noqa: F401
+        except Exception as exc:
+            messagebox.showerror('yt-dlp', 'Biblioteca indisponivel: ' + repr(exc))
+            return
+        folder = Path(self.output_var.get()).expanduser()
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            messagebox.showerror('Pasta invalida', str(exc))
+            return
+        self.had_error = False
+        self.busy = True
+        self.link_button.configure(state='disabled')
+        threading.Thread(target=self.link_worker, args=(url, folder, self.link_format.get()), daemon=True).start()
+
+    def link_worker(self, url, folder, fmt):
+        try:
+            import yt_dlp
+            ffmpeg_path = shutil.which('ffmpeg')
+            options = {
+                'outtmpl': str(folder / '%(title).180B [%(id)s].%(ext)s'),
+                'noplaylist': True,
+                'ffmpeg_location': str(Path(ffmpeg_path).parent),
+                'quiet': True,
+                'no_warnings': True,
+            }
+            if fmt == 'MP4':
+                options['format'] = 'bv*+ba/b'
+                options['merge_output_format'] = 'mp4'
+            else:
+                options['format'] = 'bestaudio/best'
+                options['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': fmt.lower(), 'preferredquality': '320' if fmt == 'MP3' else '0'}]
+            self.events.put(('status', 'Obtendo arquivo autorizado. Aguarde...'))
+            with yt_dlp.YoutubeDL(options) as ydl:
+                info = ydl.extract_info(url, download=True)
+                title = info.get('title', 'Arquivo') if isinstance(info, dict) else 'Arquivo'
+            self.events.put(('status', 'Download concluido: ' + title))
+        except Exception as exc:
+            self.events.put(('error', str(exc)))
+        finally:
+            self.events.put(('done', None))
+
     def start_stems(self):
         if self.busy:
             return
@@ -236,8 +309,8 @@ class App(ctk.CTk):
             return
         try:
             import demucs.separate  # noqa: F401
-        except ImportError:
-            messagebox.showerror('Demucs', 'Instale o Demucs: python -m pip install -r requirements-studio.txt')
+        except Exception as exc:
+            messagebox.showerror('Demucs', 'Falha ao carregar o Demucs empacotado:\n' + repr(exc) + '\n\nEnvie esta mensagem para corrigirmos o build.')
             return
         try:
             start, end = self.cut_range()
@@ -248,6 +321,7 @@ class App(ctk.CTk):
             return
         self.settings['output'] = str(folder)
         save_json(CONFIG, self.settings)
+        self.had_error = False
         self.busy = True
         self.stem_button.configure(state='disabled')
         threading.Thread(target=self.stems_worker, args=(list(self.files), folder, self.stem_mode.get(), self.stem_format.get(), start, end), daemon=True).start()
@@ -322,33 +396,48 @@ class App(ctk.CTk):
         start = parse_time(self.trim_start.get())
         end = parse_time(self.trim_end.get())
         start = start or 0.0
+        if end is None:
+            raise ValueError('Informe o horário final do corte.')
         if end is not None and end <= start:
             raise ValueError('O fim do corte deve ser maior que o início.')
         return start, end
 
     def preview_cut(self):
+        """Render a short PCM WAV preview using bundled FFmpeg; play with Windows audio."""
         if not self.files:
             messagebox.showwarning('Prévia', 'Selecione um arquivo primeiro.')
             return
-        ffplay = shutil.which('ffplay')
-        if not ffplay:
-            messagebox.showinfo('Prévia', 'Instale o FFplay (incluído em alguns pacotes FFmpeg) e adicione-o ao PATH.')
+        ffmpeg = shutil.which('ffmpeg')
+        if not ffmpeg:
+            messagebox.showerror('Prévia', 'FFmpeg não encontrado no pacote do aplicativo.')
             return
         try:
-            start, end = self.cut_range()
-        except ValueError as exc:
-            messagebox.showerror('Corte inválido', str(exc))
-            return
-        cmd = [ffplay, '-autoexit', '-nodisp', '-loglevel', 'error']
-        if start is not None:
-            cmd += ['-ss', str(start)]
-        if end is not None:
-            cmd += ['-t', str(end - (start or 0))]
-        cmd.append(str(self.files[0]))
-        try:
-            subprocess.Popen(cmd, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        except OSError as exc:
-            messagebox.showerror('Prévia', str(exc))
+            import winsound
+            # Preview fields apply even if the conversion checkbox is off.
+            start = parse_time(self.trim_start.get()) or 0.0
+            end = parse_time(self.trim_end.get())
+            if end is not None and end <= start:
+                raise ValueError('O fim deve ser maior que o início.')
+            duration = min((end - start) if end is not None else 30.0, 30.0)
+            if duration <= 0:
+                raise ValueError('Escolha um intervalo válido.')
+            winsound.PlaySound(None, winsound.SND_PURGE)
+            if self.preview_path:
+                try:
+                    Path(self.preview_path).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            fd, path = tempfile.mkstemp(suffix='.wav', prefix='music_preview_')
+            os.close(fd)
+            self.preview_path = path
+            command = [ffmpeg, '-y', '-nostdin', '-hide_banner', '-loglevel', 'error',
+                       '-ss', str(start), '-i', str(self.files[0]), '-t', str(duration),
+                       '-vn', '-ac', '2', '-ar', '44100', '-c:a', 'pcm_s16le', path]
+            self.run_checked(command, timeout=120)
+            winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+            self.status_var.set('Reproduzindo prévia (até 30 segundos).')
+        except Exception as exc:
+            messagebox.showerror('Prévia', f'Não foi possível reproduzir: {exc}')
 
     def start_conversion(self):
         if self.busy:
@@ -427,14 +516,18 @@ class App(ctk.CTk):
                     self.history.insert(0, value)
                     save_json(HISTORY, self.history)
                 elif kind == 'error':
+                    self.had_error = True
                     self.status_var.set('Erro: ' + value)
                 elif kind == 'done':
                     self.busy = False
-                    self.status_var.set('Processamento concluído. Consulte a Biblioteca e o Histórico.')
+                    if not self.had_error:
+                        self.status_var.set('Processamento concluído. Consulte a Biblioteca e o Histórico.')
                     if self.page == 'Conversor':
                         self.start_button.configure(state='normal')
                     elif self.page == 'Studio DJ':
                         self.stem_button.configure(state='normal')
+                    elif self.page == 'Links':
+                        self.link_button.configure(state='normal')
         except queue.Empty:
             pass
         self.after(120, self.poll_events)
