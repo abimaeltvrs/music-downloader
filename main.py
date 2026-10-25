@@ -43,9 +43,9 @@ BASE = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'MusicDownloader'
 BASE.mkdir(parents=True, exist_ok=True)
 CONFIG = BASE / 'settings.json'
 HISTORY = BASE / 'history.json'
-BG = '#090E18'
-PANEL = '#141E30'
-ACCENT = '#1769E8'
+BG = '#080D16'
+PANEL = '#111F32'
+ACCENT = '#1787FF'
 MUTED = '#93A6C5'
 WHITE = '#F4F7FF'
 
@@ -80,7 +80,7 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('DJ Tavares | Music Downloader V1.4.5 Beta')
+        self.title('DJ Tavares | Music Downloader V1.4.6 Beta')
         self._window_icon = None
         try:
             self.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
@@ -92,8 +92,8 @@ class App(ctk.CTk):
         except Exception:
             pass
         self.preview_path = None
-        self.geometry('1080x750')
-        self.minsize(850, 560)
+        self.geometry('1180x820')
+        self.minsize(920, 620)
         self.configure(fg_color=BG)
         self.settings = load_json(CONFIG, {'output': str(Path.home() / 'Music')})
         self.history = load_json(HISTORY, [])
@@ -116,6 +116,9 @@ class App(ctk.CTk):
         self.queue_cancelled = False
         self.queue_pause = threading.Event()
         self.queue_pause.set()
+        self.transfer_pause = threading.Event()
+        self.transfer_pause.set()
+        self.transfer_cancel = threading.Event()
         self.link_format = tk.StringVar(value='MP3')
         self.link_playlist = tk.BooleanVar(value=False)
         self.playlist_save_mode = tk.StringVar(value=self.settings.get('playlist_save_mode', 'subfolder'))
@@ -139,26 +142,26 @@ class App(ctk.CTk):
         self.brand_image = None
         try:
             from PIL import Image as PILImage
-            self.brand_image = ctk.CTkImage(light_image=PILImage.open(_BUNDLE / 'assets' / 'dj_tavares_banner.png'), dark_image=PILImage.open(_BUNDLE / 'assets' / 'dj_tavares_banner.png'), size=(178, 168))
+            self.brand_image = ctk.CTkImage(light_image=PILImage.open(_BUNDLE / 'assets' / 'dj_tavares_banner.png'), dark_image=PILImage.open(_BUNDLE / 'assets' / 'dj_tavares_banner.png'), size=(185, 125))
             ctk.CTkLabel(self.sidebar, text='', image=self.brand_image).pack(anchor='w', padx=14, pady=(12, 0))
         except Exception:
             ctk.CTkLabel(self.sidebar, text='DJ TAVARES', font=('Segoe UI', 24, 'bold'), text_color=WHITE).pack(anchor='w', padx=20, pady=(28, 0))
-        ctk.CTkLabel(self.sidebar, text='STUDIO PRO  •  V1.4.4 BETA', font=('Segoe UI', 10), text_color=MUTED).pack(anchor='w', padx=20, pady=(0, 20))
-        for name, symbol in [('Conversor', '♫'), ('Studio DJ', '▥'), ('Links', '↓'), ('Biblioteca', '▤'), ('Histórico', '◷'), ('Configurações', '⚙')]:
+        ctk.CTkLabel(self.sidebar, text='STUDIO PRO  •  V1.4.6 BETA', font=('Segoe UI', 10), text_color=MUTED).pack(anchor='w', padx=20, pady=(0, 20))
+        for name, symbol in [('Conversor', '♫'), ('Studio DJ', '◈'), ('Links', '⇩'), ('Biblioteca', '▣'), ('Histórico', '◷'), ('Configurações', '⚙')]:
             button = ctk.CTkButton(self.sidebar, text=f'{symbol}    {name}', height=45, corner_radius=10, anchor='w', font=('Segoe UI', 13, 'bold'), fg_color='transparent', hover_color='#223754', command=lambda n=name: self.show_page(n))
-            button.pack(fill='x', padx=12, pady=4)
+            button.pack(fill='x', padx=12, pady=3)
             self.nav_buttons[name] = button
         ctk.CTkLabel(self.sidebar, text='WINDOWS DESKTOP', text_color=MUTED, font=('Segoe UI', 10)).pack(side='bottom', pady=24)
         self.content = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        self.content.pack(side='left', fill='both', expand=True, padx=30, pady=24)
+        self.content.pack(side='left', fill='both', expand=True, padx=24, pady=18)
 
     def clear(self):
         for child in self.content.winfo_children():
             child.destroy()
 
     def header(self, title, subtitle):
-        ctk.CTkLabel(self.content, text=title, font=('Segoe UI', 28, 'bold'), text_color=WHITE).pack(anchor='w')
-        ctk.CTkLabel(self.content, text=subtitle, font=('Segoe UI', 13), text_color=MUTED).pack(anchor='w', pady=(2, 23))
+        ctk.CTkLabel(self.content, text=title, font=('Segoe UI', 27, 'bold'), text_color=WHITE).pack(anchor='w')
+        ctk.CTkLabel(self.content, text=subtitle, font=('Segoe UI', 13), text_color=MUTED).pack(anchor='w', pady=(2, 15))
 
     def show_page(self, page):
         self.page = page
@@ -248,8 +251,8 @@ class App(ctk.CTk):
             ctk.CTkLabel(self.content, text='Requer Demucs e FFmpeg. A primeira execução pode baixar o modelo de IA. O processamento pode levar vários minutos.', text_color=MUTED, wraplength=680).pack(anchor='w', pady=(16, 0))
         elif page == 'Links':
             self.header('Download por link', 'Somente videos proprios ou com download autorizado pela plataforma.')
-            panel = ctk.CTkFrame(self.content, fg_color=PANEL, corner_radius=16)
-            panel.pack(fill='x', pady=12)
+            panel = ctk.CTkScrollableFrame(self.content, fg_color=PANEL, corner_radius=16, border_width=1, border_color='#263B59')
+            panel.pack(fill='both', expand=True, pady=(4, 8))
             ctk.CTkLabel(panel, text='URL do video', text_color=WHITE).pack(anchor='w', padx=20, pady=(20, 8))
             ctk.CTkEntry(panel, textvariable=self.url_var, height=42, placeholder_text='https://www.youtube.com/watch?v=...').pack(fill='x', padx=20)
             ctk.CTkLabel(panel, text='Vários links: cole um por linha abaixo e adicione à fila.', text_color=MUTED).pack(anchor='w', padx=20, pady=(10, 3))
@@ -281,15 +284,27 @@ class App(ctk.CTk):
             self.link_button = ctk.CTkButton(panel, text='BAIXAR CONTEUDO AUTORIZADO', height=45, command=self.start_link_download)
             self.link_button.pack(fill='x', padx=20, pady=(5, 6))
             rowq = ctk.CTkFrame(panel, fg_color='transparent')
-            rowq.pack(fill='x', padx=20, pady=(0, 16))
+            rowq.pack(fill='x', padx=20, pady=(0, 6))
             ctk.CTkButton(rowq, text='▶ Iniciar fila', command=self.start_download_queue, fg_color=ACCENT).pack(side='left', padx=(0, 8))
             ctk.CTkButton(rowq, text='Pausar / Retomar', command=self.toggle_download_queue, fg_color='#344B6D').pack(side='left', padx=(0, 8))
             ctk.CTkButton(rowq, text='Cancelar após item atual', command=self.cancel_download_queue, fg_color='#6B3440').pack(side='left')
-            self.queue_progress = ctk.CTkProgressBar(self.content, progress_color=ACCENT)
-            self.queue_progress.pack(fill='x', pady=(4, 4))
+            ctk.CTkLabel(panel, text='CONTROLE DE PLAYLIST', font=('Segoe UI', 12, 'bold'), text_color='#64B5FF').pack(anchor='w', padx=20, pady=(6, 4))
+            transport = ctk.CTkFrame(panel, fg_color='transparent')
+            transport.pack(fill='x', padx=20, pady=(0, 8))
+            self.pause_transfer_button = ctk.CTkButton(transport, text='Ⅱ  Pausar playlist', width=155, fg_color='#2B4768', hover_color='#385C82', command=self.toggle_transfer_pause)
+            self.pause_transfer_button.pack(side='left', padx=(0, 8))
+            self.cancel_transfer_button = ctk.CTkButton(transport, text='■  Parar e gerar relatório', width=205, fg_color='#8B3448', hover_color='#A84055', command=self.cancel_transfer)
+            self.cancel_transfer_button.pack(side='left')
+            self.transfer_progress = ctk.CTkProgressBar(panel, progress_color='#27A8FF')
+            self.transfer_progress.pack(fill='x', padx=20, pady=(3, 8))
+            self.transfer_progress.set(0)
+            self.transfer_detail = ctk.CTkLabel(panel, text='Nenhum download de playlist em andamento.', text_color=MUTED, anchor='w')
+            self.transfer_detail.pack(fill='x', padx=20, pady=(0, 10))
+            self.queue_progress = ctk.CTkProgressBar(panel, progress_color=ACCENT)
+            self.queue_progress.pack(fill='x', padx=20, pady=(4, 4))
             self.queue_progress.set(0)
-            ctk.CTkLabel(self.content, textvariable=self.status_var, text_color=MUTED, wraplength=700).pack(anchor='w', pady=10)
-            ctk.CTkLabel(self.content, text='Links podem falhar se o site restringir downloads. A API oficial do YouTube nao fornece extracao livre em MP3.', text_color=MUTED, wraplength=700).pack(anchor='w')
+            ctk.CTkLabel(panel, textvariable=self.status_var, text_color=MUTED, wraplength=690).pack(anchor='w', padx=20, pady=10)
+            ctk.CTkLabel(panel, text='Vídeos privados ou indisponíveis serão ignorados. O relatório distingue falhas de itens ainda não tentados.', text_color=MUTED, wraplength=690).pack(anchor='w', padx=20, pady=(0, 12))
         elif page == 'Biblioteca':
             self.header('Biblioteca musical', 'Arquivos convertidos, baixados e separados recentemente.')
             self.record_actions('Biblioteca')
@@ -377,6 +392,8 @@ class App(ctk.CTk):
             messagebox.showerror('Pasta', str(exc))
             return
         self.queue_active = True
+        self.transfer_cancel.clear()
+        self.transfer_pause.set()
         self.queue_cancelled = False
         self.queue_pause.set()
         self.queue_index = 0
@@ -411,9 +428,30 @@ class App(ctk.CTk):
             self.status_var.set('Fila retomada.')
 
     def cancel_download_queue(self):
+        self.cancel_transfer()
+
+    def toggle_transfer_pause(self):
+        if not self.busy:
+            return
+        if self.transfer_pause.is_set():
+            self.transfer_pause.clear()
+            self.status_var.set('Pausa solicitada: aguardando o próximo ponto de controle do download.')
+            if hasattr(self, 'pause_transfer_button') and self.pause_transfer_button.winfo_exists():
+                self.pause_transfer_button.configure(text='▶  Retomar playlist')
+        else:
+            self.transfer_pause.set()
+            self.status_var.set('Download retomado.')
+            if hasattr(self, 'pause_transfer_button') and self.pause_transfer_button.winfo_exists():
+                self.pause_transfer_button.configure(text='Ⅱ  Pausar playlist')
+
+    def cancel_transfer(self):
+        if not self.busy:
+            return
+        self.transfer_cancel.set()
         self.queue_cancelled = True
+        self.transfer_pause.set()
         self.queue_pause.set()
-        self.status_var.set('Cancelamento solicitado; aguardando o download atual.')
+        self.status_var.set('Parando a playlist e preparando relatório parcial...')
 
     def record_actions(self, page):
         bar = ctk.CTkFrame(self.content, fg_color='transparent')
@@ -455,6 +493,8 @@ class App(ctk.CTk):
             messagebox.showerror('Pasta invalida', str(exc))
             return
         self.had_error = False
+        self.transfer_cancel.clear()
+        self.transfer_pause.set()
         self.busy = True
         self.link_button.configure(state='disabled')
         threading.Thread(target=self.link_worker, args=(url, folder, self.link_format.get(), self.link_playlist.get(), self.link_audio_quality.get(), self.link_video_quality.get()), daemon=True).start()
@@ -492,6 +532,9 @@ class App(ctk.CTk):
             finished = {}
             failed_messages = []
             playlist_entries = []
+            seen_indices = set()
+            attempted_ids = set()
+            cancelled = False
             save_mode = save_mode or self.playlist_save_mode.get()
             subfolder = self.playlist_folder_name.get() if subfolder is None else subfolder
             # Persist user preference for the next session.
@@ -537,6 +580,30 @@ class App(ctk.CTk):
                 if filename:
                     finished[ident or str(filename)] = (dict(info), str(filename))
 
+            class StopRequested(Exception):
+                pass
+
+            def transfer_hook(data):
+                # Called regularly by yt-dlp while each track downloads.
+                if self.transfer_cancel.is_set():
+                    raise StopRequested('Interrompido pelo usuário')
+                self.transfer_pause.wait()
+                if self.transfer_cancel.is_set():
+                    raise StopRequested('Interrompido pelo usuário')
+                info = data.get('info_dict') or {}
+                video_id = str(info.get('id') or '')
+                if video_id:
+                    attempted_ids.add(video_id)
+                position = info.get('playlist_index')
+                try:
+                    if position is not None:
+                        seen_indices.add(int(position))
+                except (TypeError, ValueError):
+                    pass
+                if data.get('status') == 'finished':
+                    remember(info)
+                self.events.put(('transfer_detail', f"{info.get('title') or 'Música'} • {data.get('status', '')}"))
+
             def postprocess_hook(data):
                 if data.get('status') == 'finished':
                     remember(data.get('info_dict'))
@@ -557,6 +624,7 @@ class App(ctk.CTk):
                 'quiet': True,
                 'no_warnings': True,
                 'postprocessor_hooks': [postprocess_hook],
+                'progress_hooks': [transfer_hook],
                 'ignoreerrors': True if playlist else False,
             }
             if fmt == 'MP4':
@@ -568,19 +636,27 @@ class App(ctk.CTk):
                 options['format'] = 'bestaudio/best'
                 options['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': fmt.lower(), 'preferredquality': bitrate if fmt == 'MP3' else '0'}]
             self.events.put(('status', 'Baixando conteúdo autorizado; arquivos longos podem demorar...'))
-            with yt_dlp.YoutubeDL(options) as ydl:
-                info = ydl.extract_info(url, download=True)
-                entries = (info.get('entries') or []) if isinstance(info, dict) and info.get('_type') == 'playlist' else [info]
-                for item in entries:
-                    if not isinstance(item, dict):
-                        continue
-                    ident = str(item.get('id') or '')
-                    if ident not in finished:
-                        remember(item)
-                    # Use yt-dlp's filename template as fallback, including post-conversion extension.
-                    if ident not in finished:
-                        guessed = Path(ydl.prepare_filename(item)).with_suffix('.' + fmt.lower())
-                        finished[ident or str(guessed)] = (item, str(guessed))
+            try:
+                with yt_dlp.YoutubeDL(options) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    entries = (info.get('entries') or []) if isinstance(info, dict) and info.get('_type') == 'playlist' else [info]
+                    for item in entries:
+                        if not isinstance(item, dict):
+                            continue
+                        ident = str(item.get('id') or '')
+                        if ident not in finished:
+                            remember(item)
+                        if ident not in finished:
+                            guessed = Path(ydl.prepare_filename(item)).with_suffix('.' + fmt.lower())
+                            finished[ident or str(guessed)] = (item, str(guessed))
+            except StopRequested:
+                cancelled = True
+            except Exception as exc:
+                if self.transfer_cancel.is_set():
+                    cancelled = True
+                else:
+                    raise
+            cancelled = cancelled or self.transfer_cancel.is_set()
             count = 0
             registered = set()
             for item, filename in finished.values():
@@ -624,6 +700,7 @@ class App(ctk.CTk):
                         if match:
                             completed_ids.add(match.group(1))
                 missing = []
+                pending = []
                 for index, entry in enumerate(playlist_entries, 1):
                     video_id = str(entry.get('id') or '')
                     if video_id and video_id in completed_ids:
@@ -632,19 +709,35 @@ class App(ctk.CTk):
                     link = entry.get('webpage_url') or entry.get('url') or ''
                     if link and not str(link).startswith('http') and video_id:
                         link = 'https://www.youtube.com/watch?v=' + video_id
-                    missing.append(f'{index}. {title}\n   {link}')
-                if failed_messages or missing:
-                    report = folder / ('RELATORIO_FALHAS_' + datetime.now().strftime('%Y%m%d_%H%M%S') + '.txt')
-                    body = ('DJ Tavares - Relatório de playlist\n'
-                        + 'Origem: ' + url + '\nPasta: ' + str(folder)
-                        + f'\nArquivos novos registrados: {count}\n'
-                        + f'Itens não encontrados: {len(missing)}\n\n'
-                        + '\n\n'.join(missing)
-                        + ('\n\nMensagens de erro:\n' + '\n'.join(dict.fromkeys(failed_messages)) if failed_messages else ''))
-                    report.write_text(body, encoding='utf-8-sig')
-                    self.events.put(('playlist_report', {'path': str(report), 'downloaded': count, 'failed': len(missing)}))
-                else:
-                    self.events.put(('playlist_report', {'path': '', 'downloaded': count, 'failed': 0}))
+                    item_text = f'{index}. {title}\n   {link}'
+                    if cancelled and not (video_id in attempted_ids or index in seen_indices):
+                        pending.append(item_text)
+                    else:
+                        missing.append(item_text)
+                # Errors for private videos can occur before progress hooks fire.
+                # Classify explicitly mentioned IDs as attempted failures.
+                if cancelled and failed_messages and pending:
+                    errors = '\n'.join(failed_messages)
+                    for item in pending[:]:
+                        match = re.search(r'watch\?v=([\w-]+)', item)
+                        if match and match.group(1) in errors:
+                            pending.remove(item)
+                            missing.append(item)
+                report = folder / ('RELATORIO_PLAYLIST_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f') + '.txt')
+                successful = [x.name for x in sorted(folder.iterdir()) if x.is_file() and x.suffix.lower() == '.' + fmt.lower() and re.search(r'\[([^\[\]]{6,})\]$', x.stem)]
+                body = ('DJ Tavares - Relatório de playlist\n'
+                    + 'Situação: ' + ('INTERROMPIDA PELO USUÁRIO' if cancelled else 'CONCLUÍDA')
+                    + '\nOrigem: ' + url + '\nPasta: ' + str(folder)
+                    + f'\nNovos arquivos registrados: {count}\nArquivos presentes na pasta: {len(successful)}'
+                    + f'\nFalhas detectadas: {len(missing)}\nNão tentadas: {len(pending)}\n'
+                    + '\n=== ARQUIVOS DISPONÍVEIS ===\n' + ('\n'.join(successful) or '(nenhum)')
+                    + '\n\n=== FALHAS NO PROCESSAMENTO ===\n' + ('\n\n'.join(missing) or '(nenhuma identificada)')
+                    + '\n\n=== NÃO TENTADAS (APÓS INTERRUPÇÃO) ===\n' + ('\n\n'.join(pending) or '(nenhuma)')
+                    + ('\n\n=== ERROS DA FONTE ===\n' + '\n'.join(dict.fromkeys(failed_messages)) if failed_messages else ''))
+                report.write_text(body, encoding='utf-8-sig')
+                self.events.put(('playlist_report', {'path': str(report), 'downloaded': count, 'failed': len(missing), 'pending': len(pending), 'cancelled': cancelled}))
+            if cancelled:
+                self.events.put(('status', 'Download interrompido. Arquivos concluídos preservados e relatório salvo.'))
             if count == 0 and not playlist:
                 raise RuntimeError('Download finalizado, mas não foi possível localizar os arquivos para registrar. Confira a pasta de destino.')
             self.events.put(('status', f'{count} arquivo(s) baixado(s) e registrado(s).'))
@@ -1083,11 +1176,13 @@ class App(ctk.CTk):
                     path = value.get('path')
                     downloaded = value.get('downloaded', 0)
                     failed = value.get('failed', 0)
+                    pending = value.get('pending', 0)
+                    interrupted = value.get('cancelled', False)
                     if path:
-                        self.status_var.set(f'Playlist: {downloaded} novo(s) arquivo(s); {failed} item(ns) não encontrado(s). Relatório: {path}')
+                        self.status_var.set(f'Playlist: {downloaded} novos; {failed} falhas; {pending} não tentados. Relatório: {path}')
                         if messagebox.askyesno('Relatório de playlist',
                             f'Novos arquivos registrados: {downloaded}\n'
-                            f'Itens não encontrados: {failed}\n\n'
+                            f'Falhas detectadas: {failed}\nNão tentadas: {pending}\nSituação: {"Interrompida" if interrupted else "Concluída"}\n\n'
                             f'Relatório salvo em:\n{path}\n\nAbrir relatório agora?'):
                             try:
                                 os.startfile(path)
@@ -1095,6 +1190,9 @@ class App(ctk.CTk):
                                 webbrowser.open(Path(path).as_uri())
                     else:
                         self.status_var.set(f'Playlist concluída: {downloaded} novo(s) arquivo(s), nenhuma falha identificada.')
+                elif kind == 'transfer_detail':
+                    if self.page == 'Links' and hasattr(self, 'transfer_detail') and self.transfer_detail.winfo_exists():
+                        self.transfer_detail.configure(text=value[:110])
                 elif kind == 'queue_progress':
                     if self.page == 'Links' and hasattr(self, 'queue_progress'):
                         self.queue_progress.set(value)
@@ -1105,10 +1203,10 @@ class App(ctk.CTk):
                     self.download_queue.clear()
                     self.queue_index = 0
                     self.refresh_download_queue()
-                    self.status_var.set('Fila finalizada. Consulte o Histórico e a Biblioteca.')
+                    self.status_var.set('Fila interrompida.' if self.queue_cancelled else 'Fila finalizada. Consulte o Histórico e a Biblioteca.')
                 elif kind == 'done':
                     self.busy = False
-                    if not self.had_error:
+                    if not self.had_error and not self.transfer_cancel.is_set() and self.page != 'Links':
                         self.status_var.set('Processamento concluído. Consulte a Biblioteca e o Histórico.')
                     if self.page == 'Conversor':
                         self.start_button.configure(state='normal')
@@ -1116,6 +1214,8 @@ class App(ctk.CTk):
                         self.stem_button.configure(state='normal')
                     elif self.page == 'Links':
                         self.link_button.configure(state='normal')
+                        if hasattr(self, 'pause_transfer_button') and self.pause_transfer_button.winfo_exists():
+                            self.pause_transfer_button.configure(text='Ⅱ  Pausar playlist')
         except queue.Empty:
             pass
         self.after(120, self.poll_events)
