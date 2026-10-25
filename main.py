@@ -44,9 +44,9 @@ BASE = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'MusicDownloader'
 BASE.mkdir(parents=True, exist_ok=True)
 CONFIG = BASE / 'settings.json'
 HISTORY = BASE / 'history.json'
-BG = '#090F1B'
-PANEL = '#142239'
-ACCENT = '#228BFF'
+BG = '#060E1B'
+PANEL = '#0E2135'
+ACCENT = '#087EFF'
 MUTED = '#A0B2CF'
 WHITE = '#F7FAFF'
 
@@ -81,7 +81,7 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('DJ Tavares | Studio Pro V1.5.1 Beta')
+        self.title('DJ Tavares | Studio Pro V1.5.4 Beta')
         self._window_icon = None
         try:
             self.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
@@ -93,7 +93,7 @@ class App(ctk.CTk):
         except Exception:
             pass
         self.preview_path = None
-        self.geometry('1320x850')
+        self.geometry('1440x900')
         self.minsize(1080, 690)
         self.configure(fg_color=BG)
         self.settings = load_json(CONFIG, {'output': str(Path.home() / 'Music')})
@@ -136,76 +136,148 @@ class App(ctk.CTk):
         self.show_page('Conversor')
         self.after(120, self.poll_events)
 
+    def ui_icon(self, name, size=(26, 26)):
+        """Keep strong references and report missing assets visibly."""
+        from PIL import Image
+        path = _BUNDLE / 'assets' / 'ui' / (name + '.png')
+        if not path.is_file():
+            raise FileNotFoundError(f'Ícone ausente: {path}')
+        im = Image.open(path).convert('RGBA')
+        result = ctk.CTkImage(light_image=im, dark_image=im, size=size)
+        self._ui_images[name] = result
+        return result
+
     def build_shell(self):
-        """Studio Pro visual shell; no processing state or workers are changed."""
-        self.sidebar = ctk.CTkFrame(self, fg_color='#0B1425', width=260, corner_radius=0)
+        self._ui_images = {}
+        self.sidebar = ctk.CTkFrame(self, fg_color='#071527', width=220, corner_radius=0)
         self.sidebar.pack(side='left', fill='y')
         self.sidebar.pack_propagate(False)
         self.nav_buttons = {}
-        self._ui_images = {}
-        logo_path = _BUNDLE / 'assets' / 'ui' / 'studio_logo.png'
-        if not logo_path.exists():
-            logo_path = _BUNDLE / 'assets' / 'dj_tavares_banner.png'
+        brand = ctk.CTkFrame(self.sidebar, fg_color='transparent')
+        brand.pack(fill='x', padx=10, pady=(22, 26))
         try:
-            from PIL import Image as PILImage
-            brand_image = PILImage.open(logo_path).convert('RGBA')
-            self._ui_images['logo'] = ctk.CTkImage(light_image=brand_image, dark_image=brand_image, size=(174, 164))
-            brand = ctk.CTkFrame(self.sidebar, fg_color='#101F35', corner_radius=18)
-            brand.pack(fill='x', padx=17, pady=(19, 25))
-            ctk.CTkLabel(brand, text='', image=self._ui_images['logo']).pack(pady=(9, 0))
-            ctk.CTkLabel(brand, text='STUDIO PRO  ·  V1.5', font=('Segoe UI', 10, 'bold'), text_color='#7EAEEC').pack(pady=(0, 13))
+            logo = self.ui_icon('studio_logo', (190, 180))
+            ctk.CTkLabel(brand, text='', image=logo).pack()
         except Exception as exc:
-            print(f'[Studio Pro] Erro ao carregar logo: {exc!r}', file=sys.stderr)
-            ctk.CTkLabel(self.sidebar, text='DJ TAVARES', font=('Segoe UI', 22, 'bold'), text_color=WHITE).pack(pady=40)
-        ctk.CTkLabel(self.sidebar, text='FERRAMENTAS', font=('Segoe UI', 10, 'bold'), text_color='#748CA9').pack(anchor='w', padx=27, pady=(0, 10))
+            ctk.CTkLabel(brand, text='DJ TAVARES', font=('Segoe UI', 20, 'bold'), text_color=WHITE).pack(pady=35)
+            self.after(900, lambda: messagebox.showerror('Recursos visuais', str(exc)))
+        ctk.CTkLabel(self.sidebar, text='  FERRAMENTAS', font=('Segoe UI', 11, 'bold'), text_color='#6F95C1').pack(anchor='w', padx=18, pady=(0, 12))
         for name, asset in [('Conversor','converter'),('Studio DJ','studio'),('Links','links'),('Biblioteca','library'),('Histórico','history'),('Configurações','settings')]:
-            icon_image = None
             try:
-                from PIL import Image as PILImage
-                icon_file = _BUNDLE / 'assets' / 'ui' / (asset + '.png')
-                icon_image = ctk.CTkImage(light_image=PILImage.open(icon_file), dark_image=PILImage.open(icon_file), size=(21, 21))
-                self._ui_images[asset] = icon_image
+                ico = self.ui_icon(asset, (28,28))
             except Exception as exc:
-                print(f'[Studio Pro] Erro no icone {asset}: {exc!r}', file=sys.stderr)
-            btn = ctk.CTkButton(self.sidebar, text=name, image=icon_image, compound='left', height=49,
-                                corner_radius=12, anchor='w', font=('Segoe UI', 13, 'bold'),
-                                fg_color='transparent', text_color='#C9D8EF', hover_color='#203755',
-                                border_spacing=15, command=lambda n=name: self.show_page(n))
-            btn.pack(fill='x', padx=15, pady=4)
+                ico = None
+                print('[Studio Pro] ERRO DE RECURSO:', exc, file=sys.stderr)
+            btn = ctk.CTkButton(self.sidebar, text=name, image=ico, compound='left', height=56,
+                corner_radius=10, anchor='w', font=('Segoe UI', 14, 'bold'),
+                fg_color='transparent', text_color='#E2ECFF', hover_color='#173B64',
+                border_spacing=14, command=lambda n=name: self.show_page(n))
+            btn.pack(fill='x', padx=10, pady=4)
             self.nav_buttons[name] = btn
-        foot = ctk.CTkFrame(self.sidebar, fg_color='#12263B', corner_radius=13)
-        foot.pack(side='bottom', fill='x', padx=16, pady=19)
-        ctk.CTkLabel(foot, text='●  SISTEMA PRONTO', text_color='#5AE2AE', font=('Segoe UI', 11, 'bold')).pack(anchor='w', padx=14, pady=(13, 3))
-        ctk.CTkLabel(foot, text='DJ Tavares  •  Music Downloader', text_color='#94A8C4', font=('Segoe UI', 10)).pack(anchor='w', padx=14, pady=(0, 13))
+        foot = ctk.CTkFrame(self.sidebar, fg_color='#0A2134', corner_radius=13, border_width=1, border_color='#17446B')
+        foot.pack(side='bottom', fill='x', padx=12, pady=18)
+        ctk.CTkLabel(foot, text='●  SISTEMA PRONTO', text_color='#35E3A2', font=('Segoe UI', 11, 'bold')).pack(anchor='w', padx=12, pady=(12, 4))
+        ctk.CTkLabel(foot, text='DJ Tavares • Studio Pro', text_color=MUTED, font=('Segoe UI', 10)).pack(anchor='w', padx=12, pady=(0, 13))
         self.content = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        self.content.pack(side='left', fill='both', expand=True, padx=28, pady=19)
+        self.content.pack(side='left', fill='both', expand=True, padx=16, pady=12)
 
     def clear(self):
         for child in self.content.winfo_children():
             child.destroy()
 
     def header(self, title, subtitle):
-        top = ctk.CTkFrame(self.content, fg_color='transparent')
-        top.pack(fill='x', pady=(0, 17))
-        ctk.CTkLabel(top, text='DJ TAVARES   /   STUDIO PRO', font=('Segoe UI', 10, 'bold'), text_color='#5BA6FF').pack(anchor='w')
-        ctk.CTkLabel(top, text=title, font=('Segoe UI', 30, 'bold'), text_color=WHITE).pack(anchor='w', pady=(5, 1))
-        ctk.CTkLabel(top, text=subtitle, font=('Segoe UI', 12), text_color=MUTED).pack(anchor='w', pady=(0, 14))
-        ctk.CTkFrame(top, height=2, fg_color='#1F3753').pack(fill='x')
+        from PIL import Image
+        banner = ctk.CTkFrame(self.content, fg_color='#061527', corner_radius=12, border_width=1, border_color='#124E85')
+        banner.pack(fill='x', pady=(0, 13))
+        try:
+            im = Image.open(_BUNDLE / 'assets' / 'studio_header.jpg')
+            self._ui_images['header'] = ctk.CTkImage(light_image=im, dark_image=im, size=(1080, 88))
+            ctk.CTkLabel(banner, text='', image=self._ui_images['header']).pack(side='left', fill='x', expand=True)
+        except Exception:
+            ctk.CTkLabel(banner, text='DJ TAVARES   |   STUDIO PRO', font=('Segoe UI', 20, 'bold'), text_color=WHITE).pack(pady=20)
+        line = ctk.CTkFrame(self.content, fg_color='transparent')
+        line.pack(fill='x', pady=(0, 13))
+        ctk.CTkLabel(line, text=title, font=('Segoe UI', 26, 'bold'), text_color=WHITE).pack(anchor='w')
+        ctk.CTkLabel(line, text=subtitle, font=('Segoe UI', 12), text_color=MUTED).pack(anchor='w', pady=(2, 0))
 
     def studio_card(self, parent, title, subtitle=None):
-        card = ctk.CTkFrame(parent, fg_color='#15243B', corner_radius=17, border_width=1, border_color='#233C5B')
-        ctk.CTkLabel(card, text=title, font=('Segoe UI', 15, 'bold'), text_color=WHITE).pack(anchor='w', padx=19, pady=(17, 2))
+        card = ctk.CTkFrame(parent, fg_color='#0C2035', corner_radius=14, border_width=1, border_color='#225079')
+        ctk.CTkLabel(card, text=title, font=('Segoe UI', 15, 'bold'), text_color=WHITE).pack(anchor='w', padx=16, pady=(13, 3))
         if subtitle:
-            ctk.CTkLabel(card, text=subtitle, font=('Segoe UI', 11), text_color=MUTED).pack(anchor='w', padx=19, pady=(0, 8))
+            ctk.CTkLabel(card, text=subtitle, font=('Segoe UI', 11), text_color='#A8C0DC').pack(anchor='w', padx=16, pady=(0, 8))
         return card
+
+    def add_waveform_preview(self, parent):
+        """Real file waveform preview; clicking opens the full existing editor."""
+        import array
+        panel = self.studio_card(parent, 'EDITOR DE ÁUDIO  ·  LINHA DO TEMPO', 'Visualize a faixa; clique na onda para abrir o editor completo.')
+        panel.pack(fill='x', pady=(0, 12))
+        self.waveform_canvas = tk.Canvas(panel, height=132, bg='#071425', highlightthickness=1,
+                                         highlightbackground='#1B5788', cursor='hand2')
+        self.waveform_canvas.pack(fill='x', padx=16, pady=(5, 7))
+        self.waveform_canvas.bind('<Button-1>', lambda e: self.open_waveform_editor())
+        self.waveform_canvas.bind('<Configure>', lambda e: self._draw_waveform())
+        self._waveform_values = []
+        self._draw_waveform()
+        tools = ctk.CTkFrame(panel, fg_color='transparent')
+        tools.pack(fill='x', padx=16, pady=(0, 13))
+        ctk.CTkButton(tools, text='▶  OUVIR PRÉVIA', command=self.preview_cut, height=38,
+                      fg_color='#173D69').pack(side='left', padx=(0, 8))
+        ctk.CTkButton(tools, text='✂  ABRIR EDITOR COMPLETO', command=self.open_waveform_editor,
+                      height=38, fg_color=ACCENT).pack(side='left')
+        if self.files:
+            self._load_waveform_async(self.files[0])
+
+    def _draw_waveform(self):
+        canvas = getattr(self, 'waveform_canvas', None)
+        if canvas is None or not canvas.winfo_exists(): return
+        canvas.delete('all')
+        w = max(200, canvas.winfo_width()); h = 132
+        vals = getattr(self, '_waveform_values', [])
+        if not vals:
+            canvas.create_text(w//2, h//2, text='Selecione uma música para visualizar a forma de onda',
+                               fill='#8CB0D6', font=('Segoe UI', 11))
+            return
+        n = len(vals)
+        for x in range(0, w, 2):
+            v = vals[min(n-1, int(x*n/w))]
+            amp = max(1, int(v * (h*.44)))
+            canvas.create_line(x, h//2-amp, x, h//2+amp, fill='#209DFF', width=2)
+        canvas.create_line(0, h//2, w, h//2, fill='#356A9D')
+
+    def _load_waveform_async(self, path):
+        def task():
+            import array
+            ffmpeg = shutil.which('ffmpeg')
+            if not ffmpeg: return
+            try:
+                proc = subprocess.run([ffmpeg, '-v', 'error', '-i', str(path), '-ac', '1', '-ar', '500',
+                    '-t', '900', '-f', 's16le', '-'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                    timeout=35, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                if proc.returncode != 0: return
+                data = array.array('h'); data.frombytes(proc.stdout[:len(proc.stdout)//2*2])
+                if not data: return
+                bins = 600; step = max(1, len(data)//bins)
+                values = [min(1., max(abs(int(v)) for v in data[i:i+step])/32768.)
+                          for i in range(0,len(data),step)]
+                values = values[:bins]
+                self.after(0, lambda: self._update_waveform(path, values))
+            except Exception as exc:
+                print('[Studio Pro] Waveform preview:', exc, file=sys.stderr)
+        threading.Thread(target=task, daemon=True).start()
+
+    def _update_waveform(self, path, values):
+        if self.files and self.files[0] == path:
+            self._waveform_values = values
+            self._draw_waveform()
 
     def show_page(self, page):
         self.page = page
         for nav_name, button in self.nav_buttons.items():
-            button.configure(fg_color='#194B80' if nav_name == page else 'transparent',
+            button.configure(fg_color='#0756AC' if nav_name == page else 'transparent',
                              text_color=WHITE if nav_name == page else '#C9D8EF',
                              border_width=1 if nav_name == page else 0,
-                             border_color='#368EFF')
+                             border_color='#2AB7FF')
         self.clear()
         if page == 'Conversor':
             self.header('Conversor de áudio', 'Converta, edite e exporte suas faixas em um só lugar.')
@@ -279,6 +351,7 @@ class App(ctk.CTk):
             self.progress.pack(fill='x', padx=19, pady=(0, 11))
             self.progress.set(0)
             ctk.CTkLabel(export, textvariable=self.status_var, text_color=MUTED, wraplength=290, justify='left').pack(anchor='w', padx=19, pady=(0, 19))
+            self.add_waveform_preview(left)
 
         elif page == 'Studio DJ':
             self.header('Studio DJ', 'Separe voz, instrumental e stems com inteligência artificial.')
@@ -420,6 +493,10 @@ class App(ctk.CTk):
         self.refresh_files_labels()
 
     def refresh_files_labels(self):
+        if hasattr(self, 'waveform_canvas') and self.waveform_canvas.winfo_exists():
+            self._waveform_values = []
+            self._draw_waveform()
+            if self.files: self._load_waveform_async(self.files[0])
         for attr in ('files_label', 'stem_files_label'):
             label = getattr(self, attr, None)
             if label is not None and label.winfo_exists():
