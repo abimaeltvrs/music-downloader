@@ -3,3 +3,4 @@ demucs>=4.0,<5
 yt-dlp>=2025.1
 
 numpy>=1.26,<2
+reportlab>=4.2,<5

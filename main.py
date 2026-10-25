@@ -80,7 +80,7 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('DJ Tavares | Music Downloader V1.4.7 Beta')
+        self.title('DJ Tavares | Music Downloader V1.4.8 Beta')
         self._window_icon = None
         try:
             self.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
