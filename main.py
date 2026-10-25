@@ -77,9 +77,15 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('DJ Tavares | Music Downloader V1.4.1 Beta')
+        self.title('DJ Tavares | Music Downloader V1.4.2 Beta')
+        self._window_icon = None
         try:
             self.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
+        except Exception:
+            pass
+        try:
+            self._window_icon = tk.PhotoImage(file=str(_BUNDLE / 'assets' / 'dj_tavares_icon.png'))
+            self.iconphoto(True, self._window_icon)
         except Exception:
             pass
         self.preview_path = None
@@ -101,6 +107,12 @@ class App(ctk.CTk):
         self.trim_end = tk.StringVar(value='')
         self.output_var = tk.StringVar(value=self.settings['output'])
         self.url_var = tk.StringVar(value='')
+        self.download_queue = []
+        self.queue_index = 0
+        self.queue_active = False
+        self.queue_cancelled = False
+        self.queue_pause = threading.Event()
+        self.queue_pause.set()
         self.link_format = tk.StringVar(value='MP3')
         self.link_playlist = tk.BooleanVar(value=False)
         self.link_audio_quality = tk.StringVar(value='320')
@@ -115,19 +127,22 @@ class App(ctk.CTk):
         self.after(120, self.poll_events)
 
     def build_shell(self):
-        self.sidebar = ctk.CTkFrame(self, fg_color='#0F1726', width=210, corner_radius=0)
+        self.sidebar = ctk.CTkFrame(self, fg_color='#101B2D', width=230, corner_radius=0)
         self.sidebar.pack(side='left', fill='y')
         self.sidebar.pack_propagate(False)
+        self.nav_buttons = {}
         self.brand_image = None
         try:
             from PIL import Image as PILImage
-            self.brand_image = ctk.CTkImage(light_image=PILImage.open(_BUNDLE / 'assets' / 'dj_tavares_banner.png'), dark_image=PILImage.open(_BUNDLE / 'assets' / 'dj_tavares_banner.png'), size=(178, 115))
+            self.brand_image = ctk.CTkImage(light_image=PILImage.open(_BUNDLE / 'assets' / 'dj_tavares_banner.png'), dark_image=PILImage.open(_BUNDLE / 'assets' / 'dj_tavares_banner.png'), size=(178, 168))
             ctk.CTkLabel(self.sidebar, text='', image=self.brand_image).pack(anchor='w', padx=14, pady=(12, 0))
         except Exception:
             ctk.CTkLabel(self.sidebar, text='DJ TAVARES', font=('Segoe UI', 24, 'bold'), text_color=WHITE).pack(anchor='w', padx=20, pady=(28, 0))
-        ctk.CTkLabel(self.sidebar, text='STUDIO PRO  •  V1.4.1 BETA', font=('Segoe UI', 10), text_color=MUTED).pack(anchor='w', padx=20, pady=(0, 20))
-        for name, symbol in [('Conversor', '↪'), ('Studio DJ', '🎚'), ('Links', '↓'), ('Biblioteca', '♫'), ('Histórico', '◷'), ('Configurações', '⚙')]:
-            ctk.CTkButton(self.sidebar, text=f'{symbol}   {name}', height=43, anchor='w', fg_color='transparent', hover_color='#223754', command=lambda n=name: self.show_page(n)).pack(fill='x', padx=12, pady=4)
+        ctk.CTkLabel(self.sidebar, text='STUDIO PRO  •  V1.4.2 BETA', font=('Segoe UI', 10), text_color=MUTED).pack(anchor='w', padx=20, pady=(0, 20))
+        for name, symbol in [('Conversor', '♫'), ('Studio DJ', '▥'), ('Links', '↓'), ('Biblioteca', '▤'), ('Histórico', '◷'), ('Configurações', '⚙')]:
+            button = ctk.CTkButton(self.sidebar, text=f'{symbol}    {name}', height=45, corner_radius=10, anchor='w', font=('Segoe UI', 13, 'bold'), fg_color='transparent', hover_color='#223754', command=lambda n=name: self.show_page(n))
+            button.pack(fill='x', padx=12, pady=4)
+            self.nav_buttons[name] = button
         ctk.CTkLabel(self.sidebar, text='WINDOWS DESKTOP', text_color=MUTED, font=('Segoe UI', 10)).pack(side='bottom', pady=24)
         self.content = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         self.content.pack(side='left', fill='both', expand=True, padx=30, pady=24)
@@ -142,6 +157,8 @@ class App(ctk.CTk):
 
     def show_page(self, page):
         self.page = page
+        for nav_name, button in self.nav_buttons.items():
+            button.configure(fg_color=ACCENT if nav_name == page else 'transparent')
         self.clear()
         if page == 'Conversor':
             self.header('Converter áudio', 'Transforme arquivos locais em áudio pronto para sua biblioteca.')
@@ -229,7 +246,17 @@ class App(ctk.CTk):
             panel = ctk.CTkFrame(self.content, fg_color=PANEL, corner_radius=16)
             panel.pack(fill='x', pady=12)
             ctk.CTkLabel(panel, text='URL do video', text_color=WHITE).pack(anchor='w', padx=20, pady=(20, 8))
-            ctk.CTkEntry(panel, textvariable=self.url_var, height=42).pack(fill='x', padx=20)
+            ctk.CTkEntry(panel, textvariable=self.url_var, height=42, placeholder_text='https://www.youtube.com/watch?v=...').pack(fill='x', padx=20)
+            ctk.CTkLabel(panel, text='Vários links: cole um por linha abaixo e adicione à fila.', text_color=MUTED).pack(anchor='w', padx=20, pady=(10, 3))
+            self.multi_links = ctk.CTkTextbox(panel, height=76, fg_color='#0D1626', border_width=1, border_color='#2B4566')
+            self.multi_links.pack(fill='x', padx=20)
+            controls = ctk.CTkFrame(panel, fg_color='transparent')
+            controls.pack(fill='x', padx=20, pady=(8, 2))
+            ctk.CTkButton(controls, text='＋ Adicionar à fila', command=self.add_download_queue, width=150).pack(side='left', padx=(0, 8))
+            ctk.CTkButton(controls, text='Limpar fila', fg_color='#33445E', command=self.clear_download_queue, width=105).pack(side='left')
+            self.queue_label = ctk.CTkLabel(panel, text='', text_color=MUTED, anchor='w')
+            self.queue_label.pack(fill='x', padx=20)
+            self.refresh_download_queue()
             ctk.CTkLabel(panel, text='Formato de saida', text_color=WHITE).pack(anchor='w', padx=20, pady=(15, 8))
             ctk.CTkOptionMenu(panel, values=['MP3', 'MP4', 'WAV'], variable=self.link_format, fg_color='#253A5A').pack(anchor='w', padx=20)
             ctk.CTkLabel(panel, text='Qualidade MP3 (kbps)', text_color=WHITE).pack(anchor='w', padx=20, pady=(12, 4))
@@ -242,14 +269,24 @@ class App(ctk.CTk):
             ctk.CTkEntry(panel, textvariable=self.output_var).pack(fill='x', padx=20)
             ctk.CTkButton(panel, text='Escolher pasta', command=self.pick_output).pack(anchor='w', padx=20, pady=12)
             self.link_button = ctk.CTkButton(panel, text='BAIXAR CONTEUDO AUTORIZADO', height=45, command=self.start_link_download)
-            self.link_button.pack(fill='x', padx=20, pady=(5, 18))
+            self.link_button.pack(fill='x', padx=20, pady=(5, 6))
+            rowq = ctk.CTkFrame(panel, fg_color='transparent')
+            rowq.pack(fill='x', padx=20, pady=(0, 16))
+            ctk.CTkButton(rowq, text='▶ Iniciar fila', command=self.start_download_queue, fg_color=ACCENT).pack(side='left', padx=(0, 8))
+            ctk.CTkButton(rowq, text='Pausar / Retomar', command=self.toggle_download_queue, fg_color='#344B6D').pack(side='left', padx=(0, 8))
+            ctk.CTkButton(rowq, text='Cancelar após item atual', command=self.cancel_download_queue, fg_color='#6B3440').pack(side='left')
+            self.queue_progress = ctk.CTkProgressBar(self.content, progress_color=ACCENT)
+            self.queue_progress.pack(fill='x', pady=(4, 4))
+            self.queue_progress.set(0)
             ctk.CTkLabel(self.content, textvariable=self.status_var, text_color=MUTED, wraplength=700).pack(anchor='w', pady=10)
             ctk.CTkLabel(self.content, text='Links podem falhar se o site restringir downloads. A API oficial do YouTube nao fornece extracao livre em MP3.', text_color=MUTED, wraplength=700).pack(anchor='w')
         elif page == 'Biblioteca':
             self.header('Biblioteca musical', 'Arquivos convertidos, baixados e separados recentemente.')
+            self.record_actions('Biblioteca')
             self.records(self.history[:40], show_open=True)
         elif page == 'Histórico':
             self.header('Histórico', 'Registro das conversões, downloads e separações.')
+            self.record_actions('Histórico')
             self.records(self.history, show_open=False)
         else:
             self.header('Configurações', 'Preferências do Music Downloader.')
@@ -279,6 +316,109 @@ class App(ctk.CTk):
             label = getattr(self, attr, None)
             if label is not None and label.winfo_exists():
                 label.configure(text=self.file_summary())
+
+    def refresh_download_queue(self):
+        if hasattr(self, 'queue_label') and self.queue_label.winfo_exists():
+            preview = '  |  '.join(f"{i+1}. {item['url'][:55]}" for i, item in enumerate(self.download_queue[:3]))
+            self.queue_label.configure(text=f'{len(self.download_queue)} link(s) na fila. {preview}')
+
+    def add_download_queue(self):
+        raw = self.multi_links.get('1.0', 'end').strip()
+        raw = '\n'.join([self.url_var.get().strip(), raw])
+        urls = [u.strip() for u in raw.splitlines() if u.strip()]
+        seen = {item['url'] for item in self.download_queue}
+        added = 0
+        for url in urls:
+            if not url.startswith(('https://', 'http://')) or url in seen:
+                continue
+            self.download_queue.append({'url': url, 'format': self.link_format.get(),
+                'bitrate': self.link_audio_quality.get(), 'resolution': self.link_video_quality.get(),
+                'playlist': self.link_playlist.get()})
+            seen.add(url)
+            added += 1
+        self.multi_links.delete('1.0', 'end')
+        self.url_var.set('')
+        self.refresh_download_queue()
+        if not added:
+            messagebox.showinfo('Fila', 'Nenhum link novo e válido foi adicionado.')
+
+    def clear_download_queue(self):
+        if self.queue_active:
+            messagebox.showwarning('Fila em execução', 'Cancele a fila antes de limpá-la.')
+            return
+        self.download_queue.clear()
+        self.queue_index = 0
+        self.refresh_download_queue()
+
+    def start_download_queue(self):
+        if self.busy or self.queue_active:
+            return
+        if not self.download_queue:
+            self.add_download_queue()
+        if not self.download_queue:
+            return
+        if not shutil.which('ffmpeg'):
+            messagebox.showerror('FFmpeg', 'FFmpeg não encontrado no pacote.')
+            return
+        folder = Path(self.output_var.get()).expanduser()
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            messagebox.showerror('Pasta', str(exc))
+            return
+        self.queue_active = True
+        self.queue_cancelled = False
+        self.queue_pause.set()
+        self.queue_index = 0
+        self.busy = True
+        self.had_error = False
+        threading.Thread(target=self.download_queue_worker, args=(folder,), daemon=True).start()
+
+    def download_queue_worker(self, folder):
+        # Each item uses the already-tested download engine; one at a time.
+        while self.queue_index < len(self.download_queue) and not self.queue_cancelled:
+            self.queue_pause.wait()
+            if self.queue_cancelled:
+                break
+            item = self.download_queue[self.queue_index]
+            self.events.put(('status', f"Fila {self.queue_index+1}/{len(self.download_queue)}: {item['url']}"))
+            if 'open.spotify.com/' in item['url'].lower():
+                self.events.put(('status', 'Link Spotify identificado: não há extração de áudio protegido.'))
+            else:
+                self.link_worker(item['url'], folder, item['format'], item['playlist'], item['bitrate'], item['resolution'], queue_item=True)
+            self.queue_index += 1
+            self.events.put(('queue_progress', self.queue_index / max(len(self.download_queue), 1)))
+        self.events.put(('queue_finished', None))
+
+    def toggle_download_queue(self):
+        if not self.queue_active:
+            return
+        if self.queue_pause.is_set():
+            self.queue_pause.clear()
+            self.status_var.set('Fila pausada; o download atual termina antes da pausa.')
+        else:
+            self.queue_pause.set()
+            self.status_var.set('Fila retomada.')
+
+    def cancel_download_queue(self):
+        self.queue_cancelled = True
+        self.queue_pause.set()
+        self.status_var.set('Cancelamento solicitado; aguardando o download atual.')
+
+    def record_actions(self, page):
+        bar = ctk.CTkFrame(self.content, fg_color='transparent')
+        bar.pack(fill='x', pady=(0, 12))
+        ctk.CTkButton(bar, text='Limpar registros', fg_color='#6B3440', hover_color='#873C4A',
+            command=lambda: self.clear_records(page)).pack(side='right')
+        ctk.CTkLabel(bar, text='A limpeza não apaga músicas do computador.', text_color=MUTED).pack(side='left')
+
+    def clear_records(self, page):
+        if not messagebox.askyesno('Confirmar limpeza',
+                f'Limpar os registros de {page.lower()}? Os arquivos físicos serão preservados.'):
+            return
+        self.history.clear()
+        save_json(HISTORY, self.history)
+        self.show_page(page)
 
     def start_link_download(self):
         if self.busy:
@@ -315,7 +455,7 @@ class App(ctk.CTk):
             try:
                 import urllib.parse, urllib.request
                 endpoint = 'https://open.spotify.com/oembed?url=' + urllib.parse.quote(url, safe='')
-                req = urllib.request.Request(endpoint, headers={'User-Agent': 'DJTavares/1.4.1'})
+                req = urllib.request.Request(endpoint, headers={'User-Agent': 'DJTavares/1.4.2'})
                 with urllib.request.urlopen(req, timeout=12) as response:
                     data = json.load(response)
                 title = data.get('title', 'Música não identificada')
@@ -326,7 +466,7 @@ class App(ctk.CTk):
                 self.after(0, lambda msg=str(exc): messagebox.showerror('Spotify', 'Não foi possível identificar o link: ' + msg))
         threading.Thread(target=work, daemon=True).start()
 
-    def link_worker(self, url, folder, fmt, playlist, bitrate='320', resolution='1080p'):
+    def link_worker(self, url, folder, fmt, playlist, bitrate='320', resolution='1080p', queue_item=False):
         """Record completed files, including individual items from playlists."""
         try:
             import yt_dlp
@@ -402,7 +542,8 @@ class App(ctk.CTk):
         except Exception as exc:
             self.events.put(('error', str(exc)))
         finally:
-            self.events.put(('done', None))
+            if not queue_item:
+                self.events.put(('done', None))
 
     def start_stems(self):
         if self.busy:
@@ -523,6 +664,10 @@ class App(ctk.CTk):
         src = self.files[0]
         win = ctk.CTkToplevel(self)
         win.title('DJ Tavares | Editor visual')
+        try:
+            win.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
+        except Exception:
+            pass
         win.geometry('980x570')
         win.configure(fg_color=BG)
         win.transient(self)
@@ -532,7 +677,7 @@ class App(ctk.CTk):
         canvas.pack(fill='x', padx=20, pady=(20, 10))
         info = ctk.CTkLabel(win, text='Carregando forma de onda...', text_color=MUTED)
         info.pack(pady=5)
-        state = {'duration': 0, 'samples': [], 'start': 0., 'end': 0., 'drag': False, 'cursor': 0., 'playing': False, 'started': 0., 'preview_file': None}
+        state = {'duration': 0, 'samples': [], 'start': 0., 'end': 0., 'drag': False, 'cursor': 0., 'playing': False, 'started': 0., 'preview_file': None, 'zoom': 1.0, 'view': 0.0}
         def fmt(seconds):
             return f'{int(seconds//3600):02d}:{int(seconds%3600//60):02d}:{seconds%60:05.2f}'
         def draw():
@@ -544,20 +689,20 @@ class App(ctk.CTk):
                 return
             n = len(samples)
             for x in range(w):
-                idx = min(n-1, int(x*n/w))
+                idx = min(n-1, int((state['view'] + x/w / state['zoom'])*n))
                 amp = samples[idx] * (h*.44)
                 canvas.create_line(x, h/2-amp, x, h/2+amp, fill='#328CFF')
             duration = state['duration']
             if not duration: return
-            canvas.create_line(state['cursor']/duration*w, 0, state['cursor']/duration*w, h, fill='#FFCC55', width=2, tags='playhead')
-            a = int(min(state['start'], state['end']) / duration * w)
-            b = int(max(state['start'], state['end']) / duration * w)
+            canvas.create_line((state['cursor']/duration-state['view'])*state['zoom']*w, 0, (state['cursor']/duration-state['view'])*state['zoom']*w, h, fill='#FFCC55', width=2, tags='playhead')
+            a = int((min(state['start'], state['end']) / duration-state['view'])*state['zoom']*w)
+            b = int((max(state['start'], state['end']) / duration-state['view'])*state['zoom']*w)
             canvas.create_rectangle(a, 0, b, h, outline='#86D7FF', width=2, fill='', stipple='gray25')
             canvas.create_line(a, 0, a, h, fill='#D4F2FF', width=3)
             canvas.create_line(b, 0, b, h, fill='#D4F2FF', width=3)
             info.configure(text=f'Início: {fmt(min(state["start"], state["end"]))}   •   Fim: {fmt(max(state["start"], state["end"]))}   •   Duração total: {fmt(duration)}')
         def pos(event):
-            return max(0., min(state['duration'], event.x/max(canvas.winfo_width(), 1)*state['duration']))
+            return max(0., min(state['duration'], (state['view'] + event.x/max(canvas.winfo_width(), 1)/state['zoom'])*state['duration']))
         def down(event):
             if state['duration']:
                 state['start'] = state['end'] = pos(event)
@@ -575,6 +720,15 @@ class App(ctk.CTk):
             stop_audio()
             draw()
         canvas.bind('<Button-3>', seek)
+        def zoom(change):
+            old = state['zoom']
+            state['zoom'] = max(1.0, min(24.0, old * change))
+            state['view'] = max(0., min(1.-1./state['zoom'], state['cursor']/max(state['duration'],1)-.5/state['zoom']))
+            draw()
+        def scroll(event):
+            state['view'] = max(0., min(1.-1./state['zoom'], state['view'] - (event.delta/120)*.1/state['zoom']))
+            draw()
+        canvas.bind('<MouseWheel>', scroll)
         canvas.bind('<Button-1>', down)
         canvas.bind('<B1-Motion>', move)
         canvas.bind('<ButtonRelease-1>', up)
@@ -634,7 +788,9 @@ class App(ctk.CTk):
         ctk.CTkButton(player, text='▶ Reproduzir', command=play_audio, width=125).pack(side='left', padx=8, pady=8)
         ctk.CTkButton(player, text='▶ Ouvir seleção', command=lambda: play_audio(True), width=140).pack(side='left', padx=8)
         ctk.CTkButton(player, text='■ Parar', command=stop_audio, width=90, fg_color='#34445C').pack(side='left', padx=8)
-        ctk.CTkLabel(player, text='Botão direito na onda: posicionar reprodução', text_color=MUTED).pack(side='left', padx=10)
+        ctk.CTkButton(player, text='Zoom +', command=lambda: zoom(1.7), width=75, fg_color='#344B6D').pack(side='left', padx=4)
+        ctk.CTkButton(player, text='Zoom −', command=lambda: zoom(1/1.7), width=75, fg_color='#344B6D').pack(side='left', padx=4)
+        ctk.CTkLabel(win, text='Botão direito: mover cursor • Roda do mouse: navegar na faixa ampliada • Zoom +/-', text_color=MUTED).pack(padx=20, anchor='w')
         fades = ctk.CTkFrame(win, fg_color='transparent')
         fades.pack(fill='x', padx=20, pady=6)
         ctk.CTkCheckBox(fades, text='Fade-in', variable=self.fade_in_var).pack(side='left', padx=8)
@@ -814,6 +970,17 @@ class App(ctk.CTk):
                 elif kind == 'error':
                     self.had_error = True
                     self.status_var.set('Erro: ' + value)
+                elif kind == 'queue_progress':
+                    if self.page == 'Links' and hasattr(self, 'queue_progress'):
+                        self.queue_progress.set(value)
+                    self.refresh_download_queue()
+                elif kind == 'queue_finished':
+                    self.queue_active = False
+                    self.busy = False
+                    self.download_queue.clear()
+                    self.queue_index = 0
+                    self.refresh_download_queue()
+                    self.status_var.set('Fila finalizada. Consulte o Histórico e a Biblioteca.')
                 elif kind == 'done':
                     self.busy = False
                     if not self.had_error:
