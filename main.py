@@ -568,6 +568,36 @@ class App(ctk.CTk):
                 except Exception as probe_exc:
                     failed_messages.append('Não foi possível obter a lista completa: ' + str(probe_exc))
             prior_files = {str(x.resolve()): x.stat().st_mtime_ns for x in folder.iterdir() if x.is_file()}
+            # Snapshot partial files so we never remove a pre-existing download
+            # or a partial file created by another application.
+            partial_extensions = ('.part', '.ytdl', '.part-frag')
+            initial_partials = {str(x.resolve()) for x in folder.iterdir()
+                                if x.is_file() and (x.name.lower().endswith(partial_extensions)
+                                or '.part-frag' in x.name.lower())}
+            active_download_files = set()
+            def clean_cancelled_partials():
+                if not cancelled:
+                    return
+                removed = 0
+                for candidate in folder.iterdir():
+                    if not candidate.is_file():
+                        continue
+                    name = candidate.name.lower()
+                    if not (name.endswith(partial_extensions) or '.part-frag' in name):
+                        continue
+                    resolved = str(candidate.resolve())
+                    if resolved in initial_partials:
+                        continue
+                    # Only touch partials belonging to the current operation.
+                    # Filename comes from the configured output template and yt-dlp hooks.
+                    if resolved not in active_download_files and not any(f'[{video_id}]' in candidate.name for video_id in attempted_ids):
+                        continue
+                    try:
+                        candidate.unlink()
+                        removed += 1
+                    except OSError as exc:
+                        self.events.put(('status', f'Não foi possível remover temporário {candidate.name}: {exc}'))
+                self.events.put(('status', f'Interrupção concluída: {removed} arquivo(s) temporário(s) desta operação removido(s).'))
             self.events.put(('status', f'Pasta de destino: {folder}'))
 
             def remember(info):
@@ -592,6 +622,9 @@ class App(ctk.CTk):
                 self.transfer_pause.wait()
                 if self.transfer_cancel.is_set():
                     raise StopRequested('Interrompido pelo usuário')
+                tmp_name = data.get('tmpfilename')
+                if tmp_name:
+                    active_download_files.add(str(Path(tmp_name).resolve()))
                 info = data.get('info_dict') or {}
                 video_id = str(info.get('id') or '')
                 if video_id:
@@ -628,6 +661,8 @@ class App(ctk.CTk):
                 'postprocessor_hooks': [postprocess_hook],
                 'progress_hooks': [transfer_hook],
                 'ignoreerrors': True if playlist else False,
+                # Do not keep incomplete downloads when this session is stopped.
+                'continuedl': True,
             }
             if fmt == 'MP4':
                 height = int(resolution[:-1]) if resolution.endswith('p') else None
@@ -659,6 +694,9 @@ class App(ctk.CTk):
                 else:
                     raise
             cancelled = cancelled or self.transfer_cancel.is_set()
+            # yt-dlp has exited its download context: it is now safe to clean up
+            # only newly created partials, leaving completed MP3/MP4 untouched.
+            clean_cancelled_partials()
             count = 0
             registered = set()
             for item, filename in finished.values():
