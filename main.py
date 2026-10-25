@@ -1,6 +1,7 @@
 import json
 import sys
 import tempfile
+import uuid
 import re
 import os
 import queue
@@ -80,7 +81,7 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('DJ Tavares | Music Downloader V1.4.9 Beta')
+        self.title('DJ Tavares | Music Downloader V1.4.11 Beta')
         self._window_icon = None
         try:
             self.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
@@ -557,6 +558,11 @@ class App(ctk.CTk):
                     label = (metadata or {}).get('title') or (metadata or {}).get('playlist_title') or 'Playlist'
                 folder = folder / safe_folder(label)
             folder.mkdir(parents=True, exist_ok=True)
+            # Each transfer gets an isolated scratch folder. yt-dlp keeps .part,
+            # fragment and intermediate files here, never among finished songs.
+            # Unique per operation: no risk of deleting another transfer's data.
+            session_tmp = BASE / 'transfer_tmp' / uuid.uuid4().hex
+            session_tmp.mkdir(parents=True, exist_ok=False)
             if playlist:
                 # Flat metadata listing keeps track of unavailable playlist entries.
                 try:
@@ -568,36 +574,15 @@ class App(ctk.CTk):
                 except Exception as probe_exc:
                     failed_messages.append('Não foi possível obter a lista completa: ' + str(probe_exc))
             prior_files = {str(x.resolve()): x.stat().st_mtime_ns for x in folder.iterdir() if x.is_file()}
-            # Snapshot partial files so we never remove a pre-existing download
-            # or a partial file created by another application.
-            partial_extensions = ('.part', '.ytdl', '.part-frag')
-            initial_partials = {str(x.resolve()) for x in folder.iterdir()
-                                if x.is_file() and (x.name.lower().endswith(partial_extensions)
-                                or '.part-frag' in x.name.lower())}
-            active_download_files = set()
-            def clean_cancelled_partials():
-                if not cancelled:
-                    return
-                removed = 0
-                for candidate in folder.iterdir():
-                    if not candidate.is_file():
-                        continue
-                    name = candidate.name.lower()
-                    if not (name.endswith(partial_extensions) or '.part-frag' in name):
-                        continue
-                    resolved = str(candidate.resolve())
-                    if resolved in initial_partials:
-                        continue
-                    # Only touch partials belonging to the current operation.
-                    # Filename comes from the configured output template and yt-dlp hooks.
-                    if resolved not in active_download_files and not any(f'[{video_id}]' in candidate.name for video_id in attempted_ids):
-                        continue
-                    try:
-                        candidate.unlink()
-                        removed += 1
-                    except OSError as exc:
-                        self.events.put(('status', f'Não foi possível remover temporário {candidate.name}: {exc}'))
-                self.events.put(('status', f'Interrupção concluída: {removed} arquivo(s) temporário(s) desta operação removido(s).'))
+            def clean_session_temp():
+                # Cleanup is limited to the isolated directory of THIS transfer.
+                # Existing partial downloads in the user's music folder are not
+                # touched; users may still want to resume those separately.
+                try:
+                    shutil.rmtree(session_tmp, ignore_errors=False)
+                except OSError as exc:
+                    self.events.put(('status', f'Temporários não removidos: {exc}'))
+
             self.events.put(('status', f'Pasta de destino: {folder}'))
 
             def remember(info):
@@ -622,9 +607,6 @@ class App(ctk.CTk):
                 self.transfer_pause.wait()
                 if self.transfer_cancel.is_set():
                     raise StopRequested('Interrompido pelo usuário')
-                tmp_name = data.get('tmpfilename')
-                if tmp_name:
-                    active_download_files.add(str(Path(tmp_name).resolve()))
                 info = data.get('info_dict') or {}
                 video_id = str(info.get('id') or '')
                 if video_id:
@@ -653,7 +635,8 @@ class App(ctk.CTk):
 
             options = {
                 'logger': DownloadLogger(),
-                'outtmpl': str(folder / '%(title).180B [%(id)s].%(ext)s'),
+                'outtmpl': '%(title).180B [%(id)s].%(ext)s',
+                'paths': {'home': str(folder), 'temp': str(session_tmp)},
                 'noplaylist': not playlist,
                 'ffmpeg_location': str(Path(ffmpeg_path).parent),
                 'quiet': True,
@@ -694,9 +677,9 @@ class App(ctk.CTk):
                 else:
                     raise
             cancelled = cancelled or self.transfer_cancel.is_set()
-            # yt-dlp has exited its download context: it is now safe to clean up
-            # only newly created partials, leaving completed MP3/MP4 untouched.
-            clean_cancelled_partials()
+            # yt-dlp has released the download files; remove only this transfer's
+            # temporary folder, whether cancelled or successfully completed.
+            clean_session_temp()
             count = 0
             registered = set()
             for item, filename in finished.values():
@@ -795,6 +778,9 @@ class App(ctk.CTk):
         except Exception as exc:
             self.events.put(('error', str(exc)))
         finally:
+            # Also clean up if metadata extraction, FFmpeg or yt-dlp raises.
+            if 'session_tmp' in locals() and session_tmp.exists():
+                clean_session_temp()
             if not queue_item:
                 self.events.put(('done', None))
 
