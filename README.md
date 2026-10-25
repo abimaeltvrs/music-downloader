@@ -40,3 +40,7 @@ pyinstaller --noconfirm --onedir --windowed --name MusicDownloader --collect-all
 
 ## Dependências e direitos
 Demucs é software de terceiros; verifique licenças das dependências e dos modelos antes de redistribuir. Use apenas conteúdo cujo processamento seja autorizado.
+
+
+## V1.4.12 Beta
+Consulte LEIA-ME-V1412-BETA.md para a nova lógica de pausa e parada entre faixas.

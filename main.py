@@ -81,7 +81,7 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('DJ Tavares | Music Downloader V1.4.11 Beta')
+        self.title('DJ Tavares | Music Downloader V1.4.12 Beta')
         self._window_icon = None
         try:
             self.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
@@ -120,6 +120,7 @@ class App(ctk.CTk):
         self.transfer_pause = threading.Event()
         self.transfer_pause.set()
         self.transfer_cancel = threading.Event()
+        self.transfer_stop_after_current = threading.Event()
         self.link_format = tk.StringVar(value='MP3')
         self.link_playlist = tk.BooleanVar(value=False)
         self.playlist_save_mode = tk.StringVar(value=self.settings.get('playlist_save_mode', 'subfolder'))
@@ -394,6 +395,7 @@ class App(ctk.CTk):
             return
         self.queue_active = True
         self.transfer_cancel.clear()
+        self.transfer_stop_after_current.clear()
         self.transfer_pause.set()
         self.queue_cancelled = False
         self.queue_pause.set()
@@ -432,27 +434,27 @@ class App(ctk.CTk):
         self.cancel_transfer()
 
     def toggle_transfer_pause(self):
-        if not self.busy:
+        if not self.busy or self.transfer_stop_after_current.is_set():
             return
         if self.transfer_pause.is_set():
             self.transfer_pause.clear()
-            self.status_var.set('Pausa solicitada: aguardando o próximo ponto de controle do download.')
+            self.status_var.set('Pausa solicitada: a música atual será concluída antes de pausar.')
             if hasattr(self, 'pause_transfer_button') and self.pause_transfer_button.winfo_exists():
                 self.pause_transfer_button.configure(text='▶  Retomar playlist')
         else:
             self.transfer_pause.set()
-            self.status_var.set('Download retomado.')
+            self.status_var.set('Playlist retomada: continuando da próxima música.')
             if hasattr(self, 'pause_transfer_button') and self.pause_transfer_button.winfo_exists():
                 self.pause_transfer_button.configure(text='Ⅱ  Pausar playlist')
 
     def cancel_transfer(self):
         if not self.busy:
             return
-        self.transfer_cancel.set()
+        self.transfer_stop_after_current.set()
         self.queue_cancelled = True
         self.transfer_pause.set()
         self.queue_pause.set()
-        self.status_var.set('Interrupção solicitada. Finalizando a operação atual e preparando o relatório...')
+        self.status_var.set('Parada solicitada: concluindo somente a música atual...')
         if hasattr(self, 'cancel_transfer_button') and self.cancel_transfer_button.winfo_exists():
             self.cancel_transfer_button.configure(state='disabled', text='■  Interrompendo...')
 
@@ -497,6 +499,7 @@ class App(ctk.CTk):
             return
         self.had_error = False
         self.transfer_cancel.clear()
+        self.transfer_stop_after_current.clear()
         self.transfer_pause.set()
         self.busy = True
         self.link_button.configure(state='disabled')
@@ -601,12 +604,8 @@ class App(ctk.CTk):
                 pass
 
             def transfer_hook(data):
-                # Called regularly by yt-dlp while each track downloads.
-                if self.transfer_cancel.is_set():
-                    raise StopRequested('Interrompido pelo usuário')
-                self.transfer_pause.wait()
-                if self.transfer_cancel.is_set():
-                    raise StopRequested('Interrompido pelo usuário')
+                # Do not abort or pause mid-track: preserve the current transfer
+                # and its FFmpeg postprocessing until the final file is ready.
                 info = data.get('info_dict') or {}
                 video_id = str(info.get('id') or '')
                 if video_id:
@@ -657,29 +656,63 @@ class App(ctk.CTk):
                 options['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': fmt.lower(), 'preferredquality': bitrate if fmt == 'MP3' else '0'}]
             self.events.put(('status', 'Baixando conteúdo autorizado; arquivos longos podem demorar...'))
             try:
-                with yt_dlp.YoutubeDL(options) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    entries = (info.get('entries') or []) if isinstance(info, dict) and info.get('_type') == 'playlist' else [info]
-                    for item in entries:
-                        if not isinstance(item, dict):
-                            continue
-                        ident = str(item.get('id') or '')
-                        if ident not in finished:
-                            remember(item)
-                        if ident not in finished:
-                            guessed = Path(ydl.prepare_filename(item)).with_suffix('.' + fmt.lower())
-                            finished[ident or str(guessed)] = (item, str(guessed))
-            except StopRequested:
-                cancelled = True
+                # Process playlist tracks one by one. yt-dlp must not receive
+                # the whole playlist in a single extract_info(download=True),
+                # otherwise pause/stop cannot reliably stop between songs.
+                if playlist and playlist_entries:
+                    options['noplaylist'] = True
+                    with yt_dlp.YoutubeDL(options) as ydl:
+                        for index, item in enumerate(playlist_entries, 1):
+                            if self.transfer_stop_after_current.is_set():
+                                cancelled = True
+                                break
+                            # Pause applies only BETWEEN completed tracks.
+                            while not self.transfer_pause.wait(timeout=0.15):
+                                if self.transfer_stop_after_current.is_set():
+                                    cancelled = True
+                                    break
+                            if cancelled or self.transfer_stop_after_current.is_set():
+                                cancelled = True
+                                break
+                            if not isinstance(item, dict):
+                                continue
+                            video_id = str(item.get('id') or '')
+                            item_url = item.get('webpage_url') or item.get('url') or ''
+                            if not str(item_url).startswith(('https://', 'http://')) and video_id:
+                                item_url = 'https://www.youtube.com/watch?v=' + video_id
+                            if not str(item_url).startswith(('https://', 'http://')):
+                                failed_messages.append(f'Item {index}: endereço indisponível')
+                                seen_indices.add(index)
+                                continue
+                            seen_indices.add(index)
+                            if video_id:
+                                attempted_ids.add(video_id)
+                            self.events.put(('status', f'Baixando música {index}/{len(playlist_entries)}: {item.get("title") or video_id}'))
+                            try:
+                                info = ydl.extract_info(item_url, download=True)
+                                if isinstance(info, dict):
+                                    remember(info)
+                            except Exception as track_exc:
+                                failed_messages.append(f'{item.get("title") or video_id}: {track_exc}')
+                            if self.transfer_stop_after_current.is_set():
+                                cancelled = True
+                                break
+                else:
+                    with yt_dlp.YoutubeDL(options) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        entries = (info.get('entries') or []) if isinstance(info, dict) and info.get('_type') == 'playlist' else [info]
+                        for item in entries:
+                            if isinstance(item, dict):
+                                remember(item)
             except Exception as exc:
-                if self.transfer_cancel.is_set():
+                if self.transfer_stop_after_current.is_set():
                     cancelled = True
                 else:
                     raise
-            cancelled = cancelled or self.transfer_cancel.is_set()
+            cancelled = cancelled or self.transfer_stop_after_current.is_set()
             # yt-dlp has released the download files; remove only this transfer's
             # temporary folder, whether cancelled or successfully completed.
-            clean_session_temp()
+            # Report is queued before scratch cleanup, keeping UI responsive.
             count = 0
             registered = set()
             for item, filename in finished.values():
