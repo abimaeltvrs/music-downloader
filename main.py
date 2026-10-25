@@ -85,17 +85,18 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('DJ Tavares | Studio Pro V1.5.4.1 Beta')
+        self.title('DJ Tavares | Studio Pro V1.5.4.3 Beta')
+        # Um AppUserModelID próprio impede o agrupamento com o ícone genérico
+        # do Python/Tk no Windows e permite a identidade do aplicativo na taskbar.
+        if sys.platform == 'win32':
+            try:
+                import ctypes
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                    'DJTavares.StudioPro.Desktop.1')
+            except Exception:
+                pass
         self._window_icon = None
-        try:
-            self.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
-        except Exception:
-            pass
-        try:
-            self._window_icon = tk.PhotoImage(file=str(_BUNDLE / 'assets' / 'dj_tavares_icon.png'))
-            self.iconphoto(True, self._window_icon)
-        except Exception:
-            pass
+        self._apply_window_icon()
         self.preview_path = None
         self.geometry('1440x900')
         self.minsize(1080, 690)
@@ -139,6 +140,22 @@ class App(ctk.CTk):
         self.build_shell()
         self.show_page('Conversor')
         self.after(120, self.poll_events)
+
+    def _apply_window_icon(self):
+        """Define ícone da janela e da barra de tarefas, também no bundle PyInstaller."""
+        icon_file = _BUNDLE / 'assets' / 'dj_tavares.ico'
+        png_file = _BUNDLE / 'assets' / 'dj_tavares_icon.png'
+        try:
+            if sys.platform == 'win32' and icon_file.is_file():
+                self.iconbitmap(default=str(icon_file))
+        except Exception as exc:
+            print(f'[Identidade] iconbitmap: {exc}', file=sys.stderr)
+        try:
+            if png_file.is_file():
+                self._window_icon = tk.PhotoImage(file=str(png_file))
+                self.iconphoto(True, self._window_icon)
+        except Exception as exc:
+            print(f'[Identidade] iconphoto: {exc}', file=sys.stderr)
 
     def ui_icon(self, name, size=(26, 26)):
         """Carrega imagem embutida, independente de _MEIPASS e da pasta _internal."""
@@ -195,8 +212,30 @@ class App(ctk.CTk):
         banner.pack(fill='x', pady=(0, 13))
         try:
             im = Image.open(BytesIO(base64.b64decode(EMBEDDED_UI['studio_header'])))
-            self._ui_images['header'] = ctk.CTkImage(light_image=im, dark_image=im, size=(1180, 97))
-            ctk.CTkLabel(banner, text='', image=self._ui_images['header']).pack(side='left', fill='x', expand=True)
+            # O cabeçalho acompanha a largura útil ao maximizar/restaurar a janela.
+            # A imagem original é mantida em memória para evitar distorção cumulativa.
+            self._header_source = im.convert('RGB')
+            self._header_image = ctk.CTkImage(
+                light_image=self._header_source, dark_image=self._header_source,
+                size=(max(1, self.content.winfo_width()-4), 97))
+            self._ui_images['header'] = self._header_image
+            header_label = ctk.CTkLabel(banner, text='', image=self._header_image,
+                                        height=97, fg_color='transparent')
+            header_label.pack(fill='x', expand=True, padx=1, pady=1)
+            self._header_resize_job = None
+            def _resize_header(event):
+                width = max(1, event.width - 4)
+                if self._header_resize_job is not None:
+                    try:
+                        self.after_cancel(self._header_resize_job)
+                    except Exception:
+                        pass
+                def _update():
+                    if header_label.winfo_exists():
+                        self._header_image.configure(size=(width, 97))
+                    self._header_resize_job = None
+                self._header_resize_job = self.after(70, _update)
+            banner.bind('<Configure>', _resize_header)
         except Exception:
             ctk.CTkLabel(banner, text='DJ TAVARES   |   STUDIO PRO', font=('Segoe UI', 20, 'bold'), text_color=WHITE).pack(pady=20)
         line = ctk.CTkFrame(self.content, fg_color='transparent')
