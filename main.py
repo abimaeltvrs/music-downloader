@@ -81,7 +81,7 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('DJ Tavares | Studio Pro V1.5 Beta')
+        self.title('DJ Tavares | Studio Pro V1.5.1 Beta')
         self._window_icon = None
         try:
             self.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
@@ -93,8 +93,8 @@ class App(ctk.CTk):
         except Exception:
             pass
         self.preview_path = None
-        self.geometry('1240x850')
-        self.minsize(1020, 680)
+        self.geometry('1320x850')
+        self.minsize(1080, 690)
         self.configure(fg_color=BG)
         self.settings = load_json(CONFIG, {'output': str(Path.home() / 'Music')})
         self.history = load_json(HISTORY, [])
@@ -137,58 +137,47 @@ class App(ctk.CTk):
         self.after(120, self.poll_events)
 
     def build_shell(self):
-        """Studio Pro shell: presentation only; processing logic stays untouched."""
-        self.sidebar = ctk.CTkFrame(self, fg_color='#0D182A', width=248, corner_radius=0,
-                                    border_width=0)
+        """Studio Pro visual shell; no processing state or workers are changed."""
+        self.sidebar = ctk.CTkFrame(self, fg_color='#0B1425', width=260, corner_radius=0)
         self.sidebar.pack(side='left', fill='y')
         self.sidebar.pack_propagate(False)
         self.nav_buttons = {}
-        self.brand_image = None
-
-        brand = ctk.CTkFrame(self.sidebar, fg_color='#101F34', corner_radius=14)
-        brand.pack(fill='x', padx=14, pady=(18, 22))
+        self._ui_images = {}
+        logo_path = _BUNDLE / 'assets' / 'ui' / 'studio_logo.png'
+        if not logo_path.exists():
+            logo_path = _BUNDLE / 'assets' / 'dj_tavares_banner.png'
         try:
             from PIL import Image as PILImage
-            banner = PILImage.open(_BUNDLE / 'assets' / 'dj_tavares_banner.png')
-            self.brand_image = ctk.CTkImage(light_image=banner, dark_image=banner, size=(184, 108))
-            ctk.CTkLabel(brand, text='', image=self.brand_image).pack(padx=10, pady=(10, 0))
+            brand_image = PILImage.open(logo_path).convert('RGBA')
+            self._ui_images['logo'] = ctk.CTkImage(light_image=brand_image, dark_image=brand_image, size=(174, 164))
+            brand = ctk.CTkFrame(self.sidebar, fg_color='#101F35', corner_radius=18)
+            brand.pack(fill='x', padx=17, pady=(19, 25))
+            ctk.CTkLabel(brand, text='', image=self._ui_images['logo']).pack(pady=(9, 0))
+            ctk.CTkLabel(brand, text='STUDIO PRO  ·  V1.5', font=('Segoe UI', 10, 'bold'), text_color='#7EAEEC').pack(pady=(0, 13))
         except Exception:
-            ctk.CTkLabel(brand, text='DJ TAVARES', font=('Segoe UI', 24, 'bold'),
-                         text_color=WHITE).pack(padx=12, pady=(22, 12))
-        ctk.CTkLabel(brand, text='MUSIC DOWNLOADER', font=('Segoe UI', 10, 'bold'),
-                     text_color='#8DAED7').pack(pady=(0, 2))
-        ctk.CTkLabel(brand, text='STUDIO PRO  /  V1.5 BETA', font=('Segoe UI', 10),
-                     text_color=MUTED).pack(pady=(0, 14))
-
-        ctk.CTkLabel(self.sidebar, text='  WORKSPACE', font=('Segoe UI', 10, 'bold'),
-                     text_color='#6F89AA').pack(anchor='w', padx=22, pady=(0, 9))
-        navigation = [
-            ('Conversor', '♫'),
-            ('Studio DJ', '◈'),
-            ('Links', '↓'),
-            ('Biblioteca', '▣'),
-            ('Histórico', '◷'),
-            ('Configurações', '⚙'),
-        ]
-        for name, symbol in navigation:
-            button = ctk.CTkButton(
-                self.sidebar, text=f'  {symbol}     {name}', height=46,
-                corner_radius=11, anchor='w', font=('Segoe UI', 13, 'bold'),
-                fg_color='transparent', text_color='#C9D8EF',
-                hover_color='#1E3553', border_spacing=8,
-                command=lambda n=name: self.show_page(n))
-            button.pack(fill='x', padx=13, pady=3)
-            self.nav_buttons[name] = button
-
-        footer = ctk.CTkFrame(self.sidebar, fg_color='#101F34', corner_radius=12)
-        footer.pack(side='bottom', fill='x', padx=14, pady=18)
-        ctk.CTkLabel(footer, text='●  STUDIO READY', text_color='#58D9B0',
-                     font=('Segoe UI', 10, 'bold')).pack(anchor='w', padx=14, pady=(12, 2))
-        ctk.CTkLabel(footer, text='Windows desktop  •  DJ Tavares',
-                     text_color=MUTED, font=('Segoe UI', 10)).pack(anchor='w', padx=14, pady=(0, 12))
-
+            ctk.CTkLabel(self.sidebar, text='DJ TAVARES', font=('Segoe UI', 22, 'bold'), text_color=WHITE).pack(pady=40)
+        ctk.CTkLabel(self.sidebar, text='FERRAMENTAS', font=('Segoe UI', 10, 'bold'), text_color='#748CA9').pack(anchor='w', padx=27, pady=(0, 10))
+        for name, asset in [('Conversor','converter'),('Studio DJ','studio'),('Links','links'),('Biblioteca','library'),('Histórico','history'),('Configurações','settings')]:
+            icon_image = None
+            try:
+                from PIL import Image as PILImage
+                icon_file = _BUNDLE / 'assets' / 'ui' / (asset + '.png')
+                icon_image = ctk.CTkImage(light_image=PILImage.open(icon_file), dark_image=PILImage.open(icon_file), size=(21, 21))
+                self._ui_images[asset] = icon_image
+            except Exception:
+                pass
+            btn = ctk.CTkButton(self.sidebar, text=name, image=icon_image, compound='left', height=49,
+                                corner_radius=12, anchor='w', font=('Segoe UI', 13, 'bold'),
+                                fg_color='transparent', text_color='#C9D8EF', hover_color='#203755',
+                                border_spacing=15, command=lambda n=name: self.show_page(n))
+            btn.pack(fill='x', padx=15, pady=4)
+            self.nav_buttons[name] = btn
+        foot = ctk.CTkFrame(self.sidebar, fg_color='#12263B', corner_radius=13)
+        foot.pack(side='bottom', fill='x', padx=16, pady=19)
+        ctk.CTkLabel(foot, text='●  SISTEMA PRONTO', text_color='#5AE2AE', font=('Segoe UI', 11, 'bold')).pack(anchor='w', padx=14, pady=(13, 3))
+        ctk.CTkLabel(foot, text='DJ Tavares  •  Music Downloader', text_color='#94A8C4', font=('Segoe UI', 10)).pack(anchor='w', padx=14, pady=(0, 13))
         self.content = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        self.content.pack(side='left', fill='both', expand=True, padx=28, pady=22)
+        self.content.pack(side='left', fill='both', expand=True, padx=28, pady=19)
 
     def clear(self):
         for child in self.content.winfo_children():
@@ -196,104 +185,135 @@ class App(ctk.CTk):
 
     def header(self, title, subtitle):
         top = ctk.CTkFrame(self.content, fg_color='transparent')
-        top.pack(fill='x', pady=(0, 16))
-        ctk.CTkLabel(top, text='DJ TAVARES  /  STUDIO PRO',
-                     font=('Segoe UI', 10, 'bold'), text_color='#65AAFF').pack(anchor='w')
-        ctk.CTkLabel(top, text=title, font=('Segoe UI', 29, 'bold'),
-                     text_color=WHITE).pack(anchor='w', pady=(5, 0))
-        ctk.CTkLabel(top, text=subtitle, font=('Segoe UI', 12),
-                     text_color=MUTED).pack(anchor='w', pady=(4, 13))
-        ctk.CTkFrame(top, height=2, fg_color='#203854', corner_radius=0).pack(fill='x')
+        top.pack(fill='x', pady=(0, 17))
+        ctk.CTkLabel(top, text='DJ TAVARES   /   STUDIO PRO', font=('Segoe UI', 10, 'bold'), text_color='#5BA6FF').pack(anchor='w')
+        ctk.CTkLabel(top, text=title, font=('Segoe UI', 30, 'bold'), text_color=WHITE).pack(anchor='w', pady=(5, 1))
+        ctk.CTkLabel(top, text=subtitle, font=('Segoe UI', 12), text_color=MUTED).pack(anchor='w', pady=(0, 14))
+        ctk.CTkFrame(top, height=2, fg_color='#1F3753').pack(fill='x')
+
+    def studio_card(self, parent, title, subtitle=None):
+        card = ctk.CTkFrame(parent, fg_color='#15243B', corner_radius=17, border_width=1, border_color='#233C5B')
+        ctk.CTkLabel(card, text=title, font=('Segoe UI', 15, 'bold'), text_color=WHITE).pack(anchor='w', padx=19, pady=(17, 2))
+        if subtitle:
+            ctk.CTkLabel(card, text=subtitle, font=('Segoe UI', 11), text_color=MUTED).pack(anchor='w', padx=19, pady=(0, 8))
+        return card
 
     def show_page(self, page):
         self.page = page
         for nav_name, button in self.nav_buttons.items():
-            button.configure(fg_color='#1C4E86' if nav_name == page else 'transparent',
+            button.configure(fg_color='#194B80' if nav_name == page else 'transparent',
                              text_color=WHITE if nav_name == page else '#C9D8EF',
                              border_width=1 if nav_name == page else 0,
                              border_color='#368EFF')
         self.clear()
         if page == 'Conversor':
-            self.header('Converter áudio', 'Transforme arquivos locais em áudio pronto para sua biblioteca.')
-            card = ctk.CTkFrame(self.content, fg_color=PANEL, corner_radius=16)
-            card.pack(fill='x', pady=(0, 18))
-            ctk.CTkLabel(card, text='Arquivos selecionados', text_color=WHITE, font=('Segoe UI', 15, 'bold')).pack(anchor='w', padx=22, pady=(20, 5))
-            self.files_label = ctk.CTkLabel(card, text=self.file_summary(), text_color=MUTED, wraplength=650, justify='left')
-            self.files_label.pack(anchor='w', padx=22, pady=(0, 12))
-            row = ctk.CTkFrame(card, fg_color='transparent')
-            row.pack(fill='x', padx=20, pady=(0, 16))
-            ctk.CTkButton(row, text='＋  Selecionar arquivos', command=self.pick_files, fg_color=ACCENT).pack(side='left', padx=(0, 8))
-            ctk.CTkButton(row, text='Limpar seleção', command=self.clear_files, fg_color='#2B3B54').pack(side='left')
-            options = ctk.CTkFrame(self.content, fg_color=PANEL, corner_radius=16)
-            options.pack(fill='x', pady=(0, 18))
-            ctk.CTkLabel(options, text='Formato de saída', text_color=WHITE).grid(row=0, column=0, padx=20, pady=(20, 8), sticky='w')
-            ctk.CTkLabel(options, text='Qualidade MP3', text_color=WHITE).grid(row=0, column=1, padx=20, pady=(20, 8), sticky='w')
-            ctk.CTkOptionMenu(options, values=['MP3', 'WAV', 'FLAC'], variable=self.format_var, fg_color='#253A5A', button_color=ACCENT).grid(row=1, column=0, padx=20, pady=(0, 20), sticky='ew')
-            ctk.CTkOptionMenu(options, values=['128', '192', '320'], variable=self.bitrate_var, fg_color='#253A5A', button_color=ACCENT).grid(row=1, column=1, padx=20, pady=(0, 20), sticky='ew')
-            options.grid_columnconfigure((0, 1), weight=1)
-            cut = ctk.CTkFrame(self.content, fg_color=PANEL, corner_radius=16)
-            cut.pack(fill='x', pady=(0, 15))
-            ctk.CTkCheckBox(cut, text='Ativar corte de áudio (antes de salvar)', variable=self.trim_enabled, text_color=WHITE, fg_color=ACCENT).pack(anchor='w', padx=20, pady=(14, 7))
-            cut_row = ctk.CTkFrame(cut, fg_color='transparent')
-            cut_row.pack(fill='x', padx=20, pady=(0, 8))
-            ctk.CTkLabel(cut_row, text='Início').pack(side='left', padx=(0, 8))
-            ctk.CTkEntry(cut_row, textvariable=self.trim_start, width=105, placeholder_text='00:00').pack(side='left', padx=(0, 18))
-            ctk.CTkLabel(cut_row, text='Fim').pack(side='left', padx=(0, 8))
-            ctk.CTkEntry(cut_row, textvariable=self.trim_end, width=105, placeholder_text='03:30').pack(side='left')
-            ctk.CTkButton(cut_row, text='▥ Editor visual', width=130, fg_color=ACCENT, command=self.open_waveform_editor).pack(side='right', padx=(8, 0))
-            ctk.CTkButton(cut_row, text='▶ Prévia', width=100, fg_color='#263B5B', command=self.preview_cut).pack(side='right')
-            effects = ctk.CTkFrame(cut, fg_color='transparent')
-            effects.pack(fill='x', padx=20, pady=(0, 9))
-            ctk.CTkCheckBox(effects, text='Fade-in', variable=self.fade_in_var, width=100).pack(side='left')
-            ctk.CTkCheckBox(effects, text='Fade-out', variable=self.fade_out_var, width=110).pack(side='left', padx=(15, 0))
-            ctk.CTkLabel(effects, text='Duração (s):').pack(side='left', padx=(18, 5))
-            ctk.CTkEntry(effects, textvariable=self.fade_duration_var, width=60).pack(side='left')
-            ctk.CTkLabel(cut, text='Horários em MM:SS ou HH:MM:SS. Fim vazio = até terminar. O mesmo corte será aplicado a todos os arquivos.', text_color=MUTED, font=('Segoe UI', 11), wraplength=620).pack(anchor='w', padx=20, pady=(0, 13))
-            ctk.CTkLabel(self.content, text='Pasta de destino', text_color=WHITE).pack(anchor='w')
-            destination = ctk.CTkFrame(self.content, fg_color='transparent')
-            destination.pack(fill='x', pady=(7, 20))
-            ctk.CTkEntry(destination, textvariable=self.output_var, height=42).pack(side='left', fill='x', expand=True, padx=(0, 10))
-            ctk.CTkButton(destination, text='Escolher pasta', command=self.pick_output, width=125, fg_color='#263B5B').pack(side='left')
-            self.start_button = ctk.CTkButton(self.content, text='↓  INICIAR CONVERSÃO', height=48, font=('Segoe UI', 14, 'bold'), fg_color=ACCENT, command=self.start_conversion)
-            self.start_button.pack(fill='x')
-            self.progress = ctk.CTkProgressBar(self.content, progress_color=ACCENT)
-            self.progress.pack(fill='x', pady=(18, 8))
+            self.header('Conversor de áudio', 'Converta, edite e exporte suas faixas em um só lugar.')
+            workspace = ctk.CTkFrame(self.content, fg_color='transparent')
+            workspace.pack(fill='both', expand=True)
+            workspace.grid_columnconfigure(0, weight=3)
+            workspace.grid_columnconfigure(1, weight=2)
+            workspace.grid_rowconfigure(0, weight=1)
+            left = ctk.CTkScrollableFrame(workspace, fg_color='transparent', corner_radius=0)
+            left.grid(row=0, column=0, sticky='nsew', padx=(0, 12))
+            right = ctk.CTkScrollableFrame(workspace, fg_color='transparent', corner_radius=0)
+            right.grid(row=0, column=1, sticky='nsew', padx=(12, 0))
+
+            files = self.studio_card(left, '01   ARQUIVOS', 'Selecione as músicas ou vídeos que deseja converter')
+            files.pack(fill='x', pady=(0, 16))
+            drop = ctk.CTkFrame(files, fg_color='#0E1B2D', corner_radius=12, border_width=1, border_color='#305278')
+            drop.pack(fill='x', padx=18, pady=(5, 12))
+            ctk.CTkLabel(drop, text='♫', font=('Segoe UI', 32, 'bold'), text_color='#4A9EFF').pack(pady=(10, 1))
+            self.files_label = ctk.CTkLabel(drop, text=self.file_summary(), text_color=MUTED, wraplength=380, justify='center')
+            self.files_label.pack(padx=14, pady=(0, 12))
+            buttons = ctk.CTkFrame(files, fg_color='transparent')
+            buttons.pack(fill='x', padx=18, pady=(0, 18))
+            ctk.CTkButton(buttons, text='Selecionar arquivos', command=self.pick_files, fg_color=ACCENT, height=39).pack(side='left', padx=(0, 8))
+            ctk.CTkButton(buttons, text='Limpar', command=self.clear_files, fg_color='#293F5B', height=39, width=90).pack(side='left')
+
+            cut = self.studio_card(left, '02   EDIÇÃO DE ÁUDIO', 'Corte, pré-escuta e efeitos')
+            cut.pack(fill='x', pady=(0, 16))
+            ctk.CTkCheckBox(cut, text='Ativar corte de áudio', variable=self.trim_enabled, text_color=WHITE, fg_color=ACCENT).pack(anchor='w', padx=19, pady=(7, 13))
+            times = ctk.CTkFrame(cut, fg_color='transparent')
+            times.pack(fill='x', padx=19, pady=(0, 12))
+            ctk.CTkLabel(times, text='Início').pack(side='left', padx=(0, 6))
+            ctk.CTkEntry(times, textvariable=self.trim_start, width=92, height=36).pack(side='left', padx=(0, 14))
+            ctk.CTkLabel(times, text='Fim').pack(side='left', padx=(0, 6))
+            ctk.CTkEntry(times, textvariable=self.trim_end, width=92, height=36).pack(side='left')
+            actions = ctk.CTkFrame(cut, fg_color='transparent')
+            actions.pack(fill='x', padx=19, pady=(0, 13))
+            ctk.CTkButton(actions, text='Editor visual', command=self.open_waveform_editor, fg_color=ACCENT, height=38).pack(side='left', padx=(0, 8))
+            ctk.CTkButton(actions, text='Ouvir prévia', command=self.preview_cut, fg_color='#2C4564', height=38).pack(side='left')
+            fades = ctk.CTkFrame(cut, fg_color='transparent')
+            fades.pack(fill='x', padx=19, pady=(0, 10))
+            ctk.CTkCheckBox(fades, text='Fade-in', variable=self.fade_in_var, width=90).pack(side='left')
+            ctk.CTkCheckBox(fades, text='Fade-out', variable=self.fade_out_var, width=90).pack(side='left', padx=(12, 0))
+            ctk.CTkLabel(cut, text='Duração do fade (segundos)', text_color=MUTED).pack(anchor='w', padx=19)
+            ctk.CTkEntry(cut, textvariable=self.fade_duration_var, width=95, height=34).pack(anchor='w', padx=19, pady=(6, 17))
+
+            settings = self.studio_card(right, 'FORMATO E QUALIDADE', 'Defina como o áudio será exportado')
+            settings.pack(fill='x', pady=(0, 16))
+            ctk.CTkLabel(settings, text='Formato de saída', text_color=MUTED).pack(anchor='w', padx=19, pady=(8, 5))
+            ctk.CTkOptionMenu(settings, values=['MP3','WAV','FLAC'], variable=self.format_var, height=39, fg_color='#253D5C', button_color=ACCENT).pack(fill='x', padx=19)
+            ctk.CTkLabel(settings, text='Qualidade MP3 (kbps)', text_color=MUTED).pack(anchor='w', padx=19, pady=(16, 5))
+            ctk.CTkOptionMenu(settings, values=['128','192','320'], variable=self.bitrate_var, height=39, fg_color='#253D5C', button_color=ACCENT).pack(fill='x', padx=19, pady=(0, 19))
+
+            export = self.studio_card(right, 'EXPORTAÇÃO', 'Pasta de destino e execução')
+            export.pack(fill='x', pady=(0, 16))
+            ctk.CTkLabel(export, text='Salvar arquivos em', text_color=MUTED).pack(anchor='w', padx=19, pady=(8, 5))
+            ctk.CTkEntry(export, textvariable=self.output_var, height=38).pack(fill='x', padx=19)
+            ctk.CTkButton(export, text='Escolher pasta', command=self.pick_output, fg_color='#29435F', height=35).pack(fill='x', padx=19, pady=(9, 18))
+            self.start_button = ctk.CTkButton(export, text='INICIAR CONVERSÃO', height=49, font=('Segoe UI', 13, 'bold'), fg_color=ACCENT, command=self.start_conversion)
+            self.start_button.pack(fill='x', padx=19, pady=(0, 16))
+            self.progress = ctk.CTkProgressBar(export, progress_color='#2B9AFF')
+            self.progress.pack(fill='x', padx=19, pady=(0, 11))
             self.progress.set(0)
-            ctk.CTkLabel(self.content, textvariable=self.status_var, text_color=MUTED).pack(anchor='w')
+            ctk.CTkLabel(export, textvariable=self.status_var, text_color=MUTED, wraplength=290, justify='left').pack(anchor='w', padx=19, pady=(0, 19))
+
         elif page == 'Studio DJ':
-            self.header('Studio DJ | Separação por IA', 'Extraia voz, instrumental ou 4 faixas de arquivos locais autorizados.')
-            card = ctk.CTkFrame(self.content, fg_color=PANEL, corner_radius=16)
-            card.pack(fill='x', pady=(0, 18))
-            ctk.CTkLabel(card, text='Músicas selecionadas', font=('Segoe UI', 15, 'bold'), text_color=WHITE).pack(anchor='w', padx=20, pady=(18, 5))
-            self.stem_files_label = ctk.CTkLabel(card, text=self.file_summary(), text_color=MUTED, wraplength=650)
-            self.stem_files_label.pack(anchor='w', padx=20, pady=(0, 10))
-            ctk.CTkButton(card, text='＋ Selecionar músicas', command=self.pick_files, fg_color=ACCENT).pack(anchor='w', padx=20, pady=(0, 18))
-            ctk.CTkLabel(card, text='O que deseja extrair?', text_color=WHITE).pack(anchor='w', padx=20)
-            ctk.CTkOptionMenu(card, values=['Somente voz', 'Somente instrumental', 'Voz + Instrumental', '4 stems (voz, bateria, baixo, outros)'], variable=self.stem_mode, width=380, fg_color='#253A5A', button_color=ACCENT).pack(anchor='w', padx=20, pady=(8, 16))
-            ctk.CTkLabel(card, text='Formato dos arquivos separados', text_color=WHITE).pack(anchor='w', padx=20)
-            ctk.CTkOptionMenu(card, values=['WAV', 'MP3'], variable=self.stem_format, width=180, fg_color='#253A5A', button_color=ACCENT).pack(anchor='w', padx=20, pady=(8, 16))
-            ctk.CTkLabel(card, text='Qualidade da separação', text_color=WHITE).pack(anchor='w', padx=20)
-            ctk.CTkOptionMenu(card, values=['Rápido', 'Alta qualidade'], variable=self.stem_quality, width=220, fg_color='#253A5A').pack(anchor='w', padx=20, pady=(8, 14))
-            ctk.CTkButton(card, text='▥ Editor visual para selecionar trecho', command=self.open_waveform_editor, fg_color=ACCENT).pack(anchor='w', padx=20, pady=(0, 12))
-            ctk.CTkCheckBox(card, text='Aplicar corte antes da separação', variable=self.trim_enabled, text_color=WHITE).pack(anchor='w', padx=20, pady=(0, 10))
-            times = ctk.CTkFrame(card, fg_color='transparent')
-            times.pack(anchor='w', padx=20, pady=(0, 18))
-            ctk.CTkLabel(times, text='Início').pack(side='left', padx=(0, 8))
-            ctk.CTkEntry(times, textvariable=self.trim_start, width=100).pack(side='left', padx=(0, 20))
-            ctk.CTkLabel(times, text='Fim').pack(side='left', padx=(0, 8))
+            self.header('Studio DJ', 'Separe voz, instrumental e stems com inteligência artificial.')
+            workspace = ctk.CTkFrame(self.content, fg_color='transparent')
+            workspace.pack(fill='both', expand=True)
+            workspace.grid_columnconfigure(0, weight=3)
+            workspace.grid_columnconfigure(1, weight=2)
+            workspace.grid_rowconfigure(0, weight=1)
+            left = ctk.CTkScrollableFrame(workspace, fg_color='transparent', corner_radius=0)
+            left.grid(row=0, column=0, sticky='nsew', padx=(0, 12))
+            right = ctk.CTkScrollableFrame(workspace, fg_color='transparent', corner_radius=0)
+            right.grid(row=0, column=1, sticky='nsew', padx=(12, 0))
+            source = self.studio_card(left, '01   FAIXAS DE ENTRADA', 'Escolha as músicas para processamento')
+            source.pack(fill='x', pady=(0, 16))
+            self.stem_files_label = ctk.CTkLabel(source, text=self.file_summary(), text_color=MUTED, wraplength=400, justify='left')
+            self.stem_files_label.pack(anchor='w', padx=19, pady=(10, 12))
+            ctk.CTkButton(source, text='Selecionar músicas', command=self.pick_files, height=42, fg_color=ACCENT).pack(fill='x', padx=19, pady=(0, 18))
+            extraction = self.studio_card(left, '02   SEPARAÇÃO POR IA', 'Escolha os elementos que deseja extrair')
+            extraction.pack(fill='x', pady=(0, 16))
+            ctk.CTkLabel(extraction, text='Modo de separação', text_color=MUTED).pack(anchor='w', padx=19, pady=(10, 5))
+            ctk.CTkOptionMenu(extraction, values=['Somente voz','Somente instrumental','Voz + Instrumental','4 stems (voz, bateria, baixo, outros)'], variable=self.stem_mode, height=42, fg_color='#253D5C', button_color=ACCENT).pack(fill='x', padx=19, pady=(0, 14))
+            ctk.CTkCheckBox(extraction, text='Aplicar corte antes da separação', variable=self.trim_enabled).pack(anchor='w', padx=19, pady=(0, 12))
+            times = ctk.CTkFrame(extraction, fg_color='transparent')
+            times.pack(fill='x', padx=19, pady=(0, 12))
+            ctk.CTkLabel(times, text='Início').pack(side='left', padx=(0, 6))
+            ctk.CTkEntry(times, textvariable=self.trim_start, width=100).pack(side='left', padx=(0, 16))
+            ctk.CTkLabel(times, text='Fim').pack(side='left', padx=(0, 6))
             ctk.CTkEntry(times, textvariable=self.trim_end, width=100).pack(side='left')
-            ctk.CTkLabel(self.content, text='Pasta de destino', text_color=WHITE).pack(anchor='w')
-            dest = ctk.CTkFrame(self.content, fg_color='transparent')
-            dest.pack(fill='x', pady=(7, 18))
-            ctk.CTkEntry(dest, textvariable=self.output_var).pack(side='left', fill='x', expand=True, padx=(0, 10))
-            ctk.CTkButton(dest, text='Escolher pasta', command=self.pick_output, fg_color='#263B5B').pack(side='left')
-            self.stem_button = ctk.CTkButton(self.content, text='♫ SEPARAR MÚSICA COM IA', height=48, font=('Segoe UI', 14, 'bold'), fg_color=ACCENT, command=self.start_stems)
-            self.stem_button.pack(fill='x')
-            self.stem_progress = ctk.CTkProgressBar(self.content, progress_color=ACCENT)
-            self.stem_progress.pack(fill='x', pady=(18, 8))
+            ctk.CTkButton(extraction, text='Abrir editor visual', command=self.open_waveform_editor, height=40, fg_color='#2B5D94').pack(fill='x', padx=19, pady=(0, 18))
+            quality = self.studio_card(right, 'CONFIGURAÇÕES DE SAÍDA', 'Formato e qualidade do processamento')
+            quality.pack(fill='x', pady=(0, 16))
+            ctk.CTkLabel(quality, text='Formato', text_color=MUTED).pack(anchor='w', padx=19, pady=(9, 5))
+            ctk.CTkOptionMenu(quality, values=['WAV','MP3'], variable=self.stem_format, height=40, fg_color='#253D5C').pack(fill='x', padx=19)
+            ctk.CTkLabel(quality, text='Qualidade', text_color=MUTED).pack(anchor='w', padx=19, pady=(15, 5))
+            ctk.CTkOptionMenu(quality, values=['Rápido','Alta qualidade'], variable=self.stem_quality, height=40, fg_color='#253D5C').pack(fill='x', padx=19, pady=(0, 18))
+            dest = self.studio_card(right, 'PROCESSAMENTO', 'Destino e progresso da separação')
+            dest.pack(fill='x')
+            ctk.CTkEntry(dest, textvariable=self.output_var, height=39).pack(fill='x', padx=19, pady=(10, 9))
+            ctk.CTkButton(dest, text='Escolher pasta', command=self.pick_output, fg_color='#29435F', height=36).pack(fill='x', padx=19, pady=(0, 16))
+            self.stem_button = ctk.CTkButton(dest, text='SEPARAR MÚSICA COM IA', height=49, font=('Segoe UI', 13, 'bold'), fg_color=ACCENT, command=self.start_stems)
+            self.stem_button.pack(fill='x', padx=19, pady=(0, 17))
+            self.stem_progress = ctk.CTkProgressBar(dest, progress_color=ACCENT)
+            self.stem_progress.pack(fill='x', padx=19, pady=(0, 12))
             self.stem_progress.set(0)
-            ctk.CTkLabel(self.content, textvariable=self.status_var, text_color=MUTED, wraplength=680).pack(anchor='w')
-            ctk.CTkLabel(self.content, text='Requer Demucs e FFmpeg. A primeira execução pode baixar o modelo de IA. O processamento pode levar vários minutos.', text_color=MUTED, wraplength=680).pack(anchor='w', pady=(16, 0))
+            ctk.CTkLabel(dest, textvariable=self.status_var, text_color=MUTED, wraplength=290).pack(anchor='w', padx=19, pady=(0, 12))
+            ctk.CTkLabel(dest, text='Demucs e FFmpeg são necessários. A primeira execução pode baixar o modelo de IA.', text_color=MUTED, wraplength=290, justify='left').pack(anchor='w', padx=19, pady=(0, 19))
         elif page == 'Links':
             self.header('Download por link', 'Somente videos proprios ou com download autorizado pela plataforma.')
             panel = ctk.CTkScrollableFrame(self.content, fg_color=PANEL, corner_radius=16, border_width=1, border_color='#2D4668')
