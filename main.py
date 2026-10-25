@@ -154,7 +154,8 @@ class App(ctk.CTk):
             brand.pack(fill='x', padx=17, pady=(19, 25))
             ctk.CTkLabel(brand, text='', image=self._ui_images['logo']).pack(pady=(9, 0))
             ctk.CTkLabel(brand, text='STUDIO PRO  ·  V1.5', font=('Segoe UI', 10, 'bold'), text_color='#7EAEEC').pack(pady=(0, 13))
-        except Exception:
+        except Exception as exc:
+            print(f'[Studio Pro] Erro ao carregar logo: {exc!r}', file=sys.stderr)
             ctk.CTkLabel(self.sidebar, text='DJ TAVARES', font=('Segoe UI', 22, 'bold'), text_color=WHITE).pack(pady=40)
         ctk.CTkLabel(self.sidebar, text='FERRAMENTAS', font=('Segoe UI', 10, 'bold'), text_color='#748CA9').pack(anchor='w', padx=27, pady=(0, 10))
         for name, asset in [('Conversor','converter'),('Studio DJ','studio'),('Links','links'),('Biblioteca','library'),('Histórico','history'),('Configurações','settings')]:
@@ -164,8 +165,8 @@ class App(ctk.CTk):
                 icon_file = _BUNDLE / 'assets' / 'ui' / (asset + '.png')
                 icon_image = ctk.CTkImage(light_image=PILImage.open(icon_file), dark_image=PILImage.open(icon_file), size=(21, 21))
                 self._ui_images[asset] = icon_image
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f'[Studio Pro] Erro no icone {asset}: {exc!r}', file=sys.stderr)
             btn = ctk.CTkButton(self.sidebar, text=name, image=icon_image, compound='left', height=49,
                                 corner_radius=12, anchor='w', font=('Segoe UI', 13, 'bold'),
                                 fg_color='transparent', text_color='#C9D8EF', hover_color='#203755',
