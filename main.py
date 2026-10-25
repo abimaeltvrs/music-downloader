@@ -80,7 +80,7 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('DJ Tavares | Music Downloader V1.4.4 Beta')
+        self.title('DJ Tavares | Music Downloader V1.4.5 Beta')
         self._window_icon = None
         try:
             self.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
@@ -460,21 +460,25 @@ class App(ctk.CTk):
         threading.Thread(target=self.link_worker, args=(url, folder, self.link_format.get(), self.link_playlist.get(), self.link_audio_quality.get(), self.link_video_quality.get()), daemon=True).start()
 
     def lookup_spotify(self, url):
-        """Spotify metadata only; offer an authorized storefront search, never DRM extraction."""
+        """Identify Spotify metadata and let the user select a YouTube result manually."""
         def work():
             try:
                 endpoint = 'https://open.spotify.com/oembed?url=' + urllib.parse.quote(url, safe='')
-                req = urllib.request.Request(endpoint, headers={'User-Agent': 'DJTavares/1.4.4'})
+                req = urllib.request.Request(endpoint, headers={'User-Agent': 'DJTavares/1.4.5'})
                 with urllib.request.urlopen(req, timeout=15) as response:
                     data = json.load(response)
                 title = data.get('title') or 'Faixa não identificada'
                 artist = data.get('author_name') or ''
+                # Spotify oEmbed may already include the artist in the title.
+                query = title if artist.lower() in title.lower() else ' '.join(x for x in (artist, title) if x)
                 def display():
-                    query = ' '.join(x for x in (artist, title) if x)
-                    if messagebox.askyesno('Spotify — faixa identificada',
-                        f'{title}\n{artist}\n\nO Spotify não disponibiliza o MP3 protegido para download externo.\n\nPesquisar essa música na loja Bandcamp, onde artistas podem disponibilizar downloads autorizados?'):
-                        webbrowser.open('https://bandcamp.com/search?q=' + urllib.parse.quote(query))
-                    self.status_var.set('Spotify identificado. Download somente quando oferecido pela fonte autorizada.')
+                    if messagebox.askyesno('Spotify — pesquisar no YouTube',
+                        f'Música: {title}\nArtista: {artist or "não informado"}\n\n'
+                        'Abrir resultados no YouTube para você escolher a versão correta?\n\n'
+                        'Depois copie o link do vídeo e cole no downloader. '
+                        'O acesso e download dependem das permissões da fonte.'):
+                        webbrowser.open('https://www.youtube.com/results?search_query=' + urllib.parse.quote(query))
+                    self.status_var.set('Spotify identificado. Escolha um vídeo disponível no YouTube e cole o link.')
                 self.after(0, display)
             except Exception as exc:
                 self.after(0, lambda msg=str(exc): messagebox.showerror('Spotify', 'Não foi possível identificar o link: ' + msg))
@@ -486,6 +490,8 @@ class App(ctk.CTk):
             import yt_dlp
             ffmpeg_path = shutil.which('ffmpeg')
             finished = {}
+            failed_messages = []
+            playlist_entries = []
             save_mode = save_mode or self.playlist_save_mode.get()
             subfolder = self.playlist_folder_name.get() if subfolder is None else subfolder
             # Persist user preference for the next session.
@@ -506,6 +512,16 @@ class App(ctk.CTk):
                     label = (metadata or {}).get('title') or (metadata or {}).get('playlist_title') or 'Playlist'
                 folder = folder / safe_folder(label)
             folder.mkdir(parents=True, exist_ok=True)
+            if playlist:
+                # Flat metadata listing keeps track of unavailable playlist entries.
+                try:
+                    with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True,
+                        'extract_flat': 'in_playlist', 'skip_download': True,
+                        'ignoreerrors': True, 'noplaylist': False}) as probe:
+                        listing = probe.extract_info(url, download=False)
+                    playlist_entries = [x for x in (listing or {}).get('entries', []) if isinstance(x, dict)]
+                except Exception as probe_exc:
+                    failed_messages.append('Não foi possível obter a lista completa: ' + str(probe_exc))
             prior_files = {str(x.resolve()): x.stat().st_mtime_ns for x in folder.iterdir() if x.is_file()}
             self.events.put(('status', f'Pasta de destino: {folder}'))
 
@@ -525,14 +541,23 @@ class App(ctk.CTk):
                 if data.get('status') == 'finished':
                     remember(data.get('info_dict'))
 
+            class DownloadLogger:
+                def debug(self, msg):
+                    pass
+                def warning(self, msg):
+                    pass
+                def error(self, msg):
+                    failed_messages.append(str(msg))
+
             options = {
+                'logger': DownloadLogger(),
                 'outtmpl': str(folder / '%(title).180B [%(id)s].%(ext)s'),
                 'noplaylist': not playlist,
                 'ffmpeg_location': str(Path(ffmpeg_path).parent),
                 'quiet': True,
                 'no_warnings': True,
                 'postprocessor_hooks': [postprocess_hook],
-                'ignoreerrors': False,
+                'ignoreerrors': True if playlist else False,
             }
             if fmt == 'MP4':
                 height = int(resolution[:-1]) if resolution.endswith('p') else None
@@ -589,7 +614,38 @@ class App(ctk.CTk):
                 self.events.put(('success', {'source': url, 'output': key,
                     'format': fmt + ' • Link', 'date': datetime.now().strftime('%d/%m/%Y %H:%M'), 'cut': None}))
                 count += 1
-            if count == 0:
+            if playlist:
+                # Compare playlist IDs to downloaded filenames; the filename template
+                # includes [video_id], even when postprocessing changes the extension.
+                completed_ids = set()
+                for output in folder.iterdir():
+                    if output.is_file() and output.suffix.lower() == '.' + fmt.lower():
+                        match = re.search(r'\[([^\[\]]{6,})\]$', output.stem)
+                        if match:
+                            completed_ids.add(match.group(1))
+                missing = []
+                for index, entry in enumerate(playlist_entries, 1):
+                    video_id = str(entry.get('id') or '')
+                    if video_id and video_id in completed_ids:
+                        continue
+                    title = entry.get('title') or f'Item {index} (indisponível)'
+                    link = entry.get('webpage_url') or entry.get('url') or ''
+                    if link and not str(link).startswith('http') and video_id:
+                        link = 'https://www.youtube.com/watch?v=' + video_id
+                    missing.append(f'{index}. {title}\n   {link}')
+                if failed_messages or missing:
+                    report = folder / ('RELATORIO_FALHAS_' + datetime.now().strftime('%Y%m%d_%H%M%S') + '.txt')
+                    body = ('DJ Tavares - Relatório de playlist\n'
+                        + 'Origem: ' + url + '\nPasta: ' + str(folder)
+                        + f'\nArquivos novos registrados: {count}\n'
+                        + f'Itens não encontrados: {len(missing)}\n\n'
+                        + '\n\n'.join(missing)
+                        + ('\n\nMensagens de erro:\n' + '\n'.join(dict.fromkeys(failed_messages)) if failed_messages else ''))
+                    report.write_text(body, encoding='utf-8-sig')
+                    self.events.put(('playlist_report', {'path': str(report), 'downloaded': count, 'failed': len(missing)}))
+                else:
+                    self.events.put(('playlist_report', {'path': '', 'downloaded': count, 'failed': 0}))
+            if count == 0 and not playlist:
                 raise RuntimeError('Download finalizado, mas não foi possível localizar os arquivos para registrar. Confira a pasta de destino.')
             self.events.put(('status', f'{count} arquivo(s) baixado(s) e registrado(s).'))
         except Exception as exc:
@@ -1023,6 +1079,22 @@ class App(ctk.CTk):
                 elif kind == 'error':
                     self.had_error = True
                     self.status_var.set('Erro: ' + value)
+                elif kind == 'playlist_report':
+                    path = value.get('path')
+                    downloaded = value.get('downloaded', 0)
+                    failed = value.get('failed', 0)
+                    if path:
+                        self.status_var.set(f'Playlist: {downloaded} novo(s) arquivo(s); {failed} item(ns) não encontrado(s). Relatório: {path}')
+                        if messagebox.askyesno('Relatório de playlist',
+                            f'Novos arquivos registrados: {downloaded}\n'
+                            f'Itens não encontrados: {failed}\n\n'
+                            f'Relatório salvo em:\n{path}\n\nAbrir relatório agora?'):
+                            try:
+                                os.startfile(path)
+                            except (OSError, AttributeError):
+                                webbrowser.open(Path(path).as_uri())
+                    else:
+                        self.status_var.set(f'Playlist concluída: {downloaded} novo(s) arquivo(s), nenhuma falha identificada.')
                 elif kind == 'queue_progress':
                     if self.page == 'Links' and hasattr(self, 'queue_progress'):
                         self.queue_progress.set(value)
