@@ -80,7 +80,7 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('DJ Tavares | Music Downloader V1.4.8 Beta')
+        self.title('DJ Tavares | Music Downloader V1.4.9 Beta')
         self._window_icon = None
         try:
             self.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
@@ -451,7 +451,9 @@ class App(ctk.CTk):
         self.queue_cancelled = True
         self.transfer_pause.set()
         self.queue_pause.set()
-        self.status_var.set('Parando playlist; preparando resumo das faixas processadas...')
+        self.status_var.set('Interrupção solicitada. Finalizando a operação atual e preparando o relatório...')
+        if hasattr(self, 'cancel_transfer_button') and self.cancel_transfer_button.winfo_exists():
+            self.cancel_transfer_button.configure(state='disabled', text='■  Interrompendo...')
 
     def record_actions(self, page):
         bar = ctk.CTkFrame(self.content, fg_color='transparent')
@@ -750,7 +752,8 @@ class App(ctk.CTk):
                 self.events.put(('status', 'Download interrompido. Arquivos concluídos preservados; escolha se deseja um relatório PDF.'))
             if count == 0 and not playlist:
                 raise RuntimeError('Download finalizado, mas não foi possível localizar os arquivos para registrar. Confira a pasta de destino.')
-            self.events.put(('status', f'{count} arquivo(s) baixado(s) e registrado(s).'))
+            if not cancelled:
+                self.events.put(('status', f'{count} arquivo(s) baixado(s) e registrado(s).'))
         except Exception as exc:
             self.events.put(('error', str(exc)))
         finally:
@@ -1209,13 +1212,15 @@ class App(ctk.CTk):
 
     @staticmethod
     def write_playlist_pdf(data, mode):
-        """Write an opt-in PDF to the app's separate reports directory."""
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, KeepTogether
+        """Create a branded, paginated DJ Tavares PDF outside the music folder."""
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib import colors
-        from reportlab.lib.enums import TA_CENTER
+        from reportlab.lib.enums import TA_LEFT, TA_CENTER
         from reportlab.lib.pagesizes import A4
+        from reportlab.lib.utils import ImageReader
         from xml.sax.saxutils import escape
+
         if mode not in ('full', 'errors'):
             raise ValueError('Tipo de relatório inválido')
         reports_dir = BASE / 'Relatorios'
@@ -1223,35 +1228,96 @@ class App(ctk.CTk):
         stamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
         kind = 'COMPLETO' if mode == 'full' else 'SOMENTE_ERROS'
         path = reports_dir / f'DJ_TAVARES_PLAYLIST_{kind}_{stamp}.pdf'
+        navy = colors.HexColor('#0B1424')
+        blue = colors.HexColor('#1787FF')
+        muted = colors.HexColor('#56657C')
+        light = colors.HexColor('#F1F5FA')
+        line = colors.HexColor('#DCE5EF')
+        success = colors.HexColor('#167A60')
+        danger = colors.HexColor('#C34155')
         styles = getSampleStyleSheet()
-        styles.add(ParagraphStyle(name='DJTitle', parent=styles['Title'], textColor=colors.HexColor('#1362A4'), fontSize=17, alignment=TA_CENTER, spaceAfter=15))
-        styles.add(ParagraphStyle(name='DJItem', parent=styles['BodyText'], leading=15, spaceAfter=9, wordWrap='CJK'))
-        doc = SimpleDocTemplate(str(path), pagesize=A4, rightMargin=45, leftMargin=45, topMargin=42, bottomMargin=42)
-        story = [Paragraph('DJ TAVARES | RELATÓRIO DE PLAYLIST', styles['DJTitle'])]
+        styles.add(ParagraphStyle(name='DJHeading', fontName='Helvetica-Bold', fontSize=12,
+                                  leading=16, textColor=navy, spaceBefore=15, spaceAfter=9))
+        styles.add(ParagraphStyle(name='DJRow', fontName='Helvetica', fontSize=9,
+                                  leading=13, textColor=navy, wordWrap='CJK'))
+        styles.add(ParagraphStyle(name='DJSmall', fontName='Helvetica', fontSize=8,
+                                  leading=11, textColor=muted, wordWrap='CJK'))
+        styles.add(ParagraphStyle(name='DJLabel', fontName='Helvetica-Bold', fontSize=9,
+                                  leading=12, textColor=navy))
+        styles.add(ParagraphStyle(name='DJBanner', fontName='Helvetica-Bold', fontSize=18,
+                                  leading=22, textColor=colors.white))
+        styles.add(ParagraphStyle(name='DJBannerSub', fontName='Helvetica', fontSize=9,
+                                  leading=13, textColor=colors.HexColor('#B8D8FF')))
+        doc = SimpleDocTemplate(str(path), pagesize=A4, rightMargin=40, leftMargin=40,
+                                topMargin=34, bottomMargin=42, title='DJ Tavares - Relatório de playlist',
+                                author='DJ Tavares Music Downloader')
         status = 'INTERROMPIDA' if data.get('cancelled') else 'CONCLUÍDA'
-        info = [f'Situação: {status}', f'Data: {datetime.now():%d/%m/%Y %H:%M}',
-                f'Novos arquivos registrados: {data.get("downloaded", 0)}',
-                f'Falhas detectadas: {data.get("failed", 0)}',
-                f'Pendentes não tentadas: {data.get("pending", 0)}',
-                f'Origem: {data.get("url", "")}']
-        for line in info:
-            story.append(Paragraph(escape(str(line)), styles['DJItem']))
-        def section(title, entries):
-            story.append(Spacer(1, 12))
-            story.append(Paragraph(escape(title), styles['Heading2']))
+        header = Table([[Paragraph('DJ TAVARES', styles['DJBanner'])],
+                        [Paragraph('MUSIC DOWNLOADER  /  RELATÓRIO DE PLAYLIST', styles['DJBannerSub'])]],
+                       colWidths=[A4[0] - 80], rowHeights=[31, 20])
+        header.setStyle(TableStyle([('BACKGROUND', (0,0),(-1,-1),navy),
+                                    ('LEFTPADDING',(0,0),(-1,-1),17),
+                                    ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+                                    ('TOPPADDING',(0,0),(-1,-1),4),
+                                    ('BOTTOMPADDING',(0,0),(-1,-1),4)]))
+        story = [header, Spacer(1, 14)]
+        story.append(Paragraph(f'<b>Situação:</b> {status}  |  <b>Gerado em:</b> {datetime.now():%d/%m/%Y %H:%M}', styles['DJRow']))
+        story.append(Spacer(1, 9))
+        stats = [('BAIXADAS', str(len(data.get('downloaded_items') or [])), success),
+                 ('COM ERRO', str(len(data.get('missing_items') or [])), danger),
+                 ('PENDENTES', str(len(data.get('pending_items') or [])), blue)]
+        stats_cells = []
+        for label, value, tint in stats:
+            stats_cells.append([Paragraph(value, ParagraphStyle(name='Num'+label.replace(' ',''), fontName='Helvetica-Bold', fontSize=17, leading=21, textColor=tint, alignment=TA_CENTER)),
+                                Paragraph(label, ParagraphStyle(name='Lbl'+label.replace(' ',''), fontName='Helvetica-Bold', fontSize=8, leading=12, textColor=muted, alignment=TA_CENTER))])
+        stat_table = Table([[Table([item], colWidths=[(A4[0]-92)/3], rowHeights=[45], style=TableStyle([
+            ('BACKGROUND',(0,0),(-1,-1),light), ('VALIGN',(0,0),(-1,-1),'MIDDLE')])) for item in stats_cells]],
+            colWidths=[(A4[0]-80)/3]*3)
+        story.extend([stat_table, Spacer(1, 12), Paragraph('<b>Origem:</b> ' + escape(str(data.get('url',''))), styles['DJSmall']),
+                      Paragraph('<b>Destino das músicas:</b> ' + escape(str(data.get('folder',''))), styles['DJSmall'])])
+
+        def section(title, entries, tint):
+            story.append(Paragraph(escape(title) + f'  ({len(entries)})', styles['DJHeading']))
             if not entries:
-                story.append(Paragraph('Nenhum item identificado.', styles['DJItem']))
-            for entry in entries:
-                story.append(Paragraph(escape(str(entry)).replace('\n', '<br/>'), styles['DJItem']))
+                story.append(Paragraph('Nenhuma música nesta categoria.', styles['DJSmall']))
+                return
+            for i, entry in enumerate(entries):
+                lines = str(entry).split('\n')
+                title_line = escape(lines[0])
+                details = '<br/>'.join(escape(x.strip()) for x in lines[1:] if x.strip())
+                cell = [Paragraph(title_line, styles['DJRow'])]
+                if details:
+                    cell.append(Paragraph(details, styles['DJSmall']))
+                row = Table([[cell]], colWidths=[A4[0]-80])
+                row.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),colors.white if i%2 else light),
+                                         ('LINEBEFORE',(0,0),(0,-1),3,tint),
+                                         ('LEFTPADDING',(0,0),(-1,-1),11),
+                                         ('RIGHTPADDING',(0,0),(-1,-1),9),
+                                         ('TOPPADDING',(0,0),(-1,-1),8),
+                                         ('BOTTOMPADDING',(0,0),(-1,-1),8)]))
+                story.append(KeepTogether([row, Spacer(1, 4)]))
         if mode == 'full':
-            section('Músicas baixadas com sucesso', data.get('downloaded_items', []))
-        section('Falhas durante o download', data.get('missing_items', []))
+            section('MÚSICAS BAIXADAS', data.get('downloaded_items') or [], success)
+        section('FALHAS NO DOWNLOAD', data.get('missing_items') or [], danger)
         if mode == 'full':
-            section('Músicas pendentes (não tentadas)', data.get('pending_items', []))
-        # Technical error details may help identify unavailable/private tracks.
+            section('MÚSICAS PENDENTES', data.get('pending_items') or [], blue)
         if data.get('failed_messages'):
-            section('Mensagens de erro da origem', data['failed_messages'])
-        doc.build(story)
+            story.append(Paragraph('DETALHES TÉCNICOS DAS FALHAS', styles['DJHeading']))
+            for msg in list(dict.fromkeys(data['failed_messages']))[:50]:
+                story.append(Paragraph(escape(str(msg))[:1200], styles['DJSmall']))
+                story.append(Spacer(1, 5))
+
+        def decorate(canvas, document):
+            canvas.saveState()
+            w, h = A4
+            canvas.setStrokeColor(line)
+            canvas.line(40, 31, w-40, 31)
+            canvas.setFillColor(muted)
+            canvas.setFont('Helvetica', 8)
+            canvas.drawString(40, 19, 'DJ TAVARES  |  Music Downloader  |  Relatório informativo')
+            canvas.drawRightString(w-40, 19, f'Página {document.page}')
+            canvas.restoreState()
+        doc.build(story, onFirstPage=decorate, onLaterPages=decorate)
         return path
 
     def poll_events(self):
@@ -1299,6 +1365,8 @@ class App(ctk.CTk):
                         self.link_button.configure(state='normal')
                         if hasattr(self, 'pause_transfer_button') and self.pause_transfer_button.winfo_exists():
                             self.pause_transfer_button.configure(text='Ⅱ  Pausar playlist')
+                        if hasattr(self, 'cancel_transfer_button') and self.cancel_transfer_button.winfo_exists():
+                            self.cancel_transfer_button.configure(state='normal', text='■  Parar playlist')
         except queue.Empty:
             pass
         self.after(120, self.poll_events)
