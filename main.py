@@ -80,7 +80,7 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('DJ Tavares | Music Downloader V1.4.6 Beta')
+        self.title('DJ Tavares | Music Downloader V1.4.7 Beta')
         self._window_icon = None
         try:
             self.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
@@ -293,7 +293,7 @@ class App(ctk.CTk):
             transport.pack(fill='x', padx=20, pady=(0, 8))
             self.pause_transfer_button = ctk.CTkButton(transport, text='Ⅱ  Pausar playlist', width=155, fg_color='#2B4768', hover_color='#385C82', command=self.toggle_transfer_pause)
             self.pause_transfer_button.pack(side='left', padx=(0, 8))
-            self.cancel_transfer_button = ctk.CTkButton(transport, text='■  Parar e gerar relatório', width=205, fg_color='#8B3448', hover_color='#A84055', command=self.cancel_transfer)
+            self.cancel_transfer_button = ctk.CTkButton(transport, text='■  Parar playlist', width=205, fg_color='#8B3448', hover_color='#A84055', command=self.cancel_transfer)
             self.cancel_transfer_button.pack(side='left')
             self.transfer_progress = ctk.CTkProgressBar(panel, progress_color='#27A8FF')
             self.transfer_progress.pack(fill='x', padx=20, pady=(3, 8))
@@ -451,7 +451,7 @@ class App(ctk.CTk):
         self.queue_cancelled = True
         self.transfer_pause.set()
         self.queue_pause.set()
-        self.status_var.set('Parando a playlist e preparando relatório parcial...')
+        self.status_var.set('Parando playlist; preparando resumo das faixas processadas...')
 
     def record_actions(self, page):
         bar = ctk.CTkFrame(self.content, fg_color='transparent')
@@ -699,18 +699,30 @@ class App(ctk.CTk):
                         match = re.search(r'\[([^\[\]]{6,})\]$', output.stem)
                         if match:
                             completed_ids.add(match.group(1))
+                # Keep a named record for every successful playlist entry, not just totals.
+                downloaded_items = []
+                files_by_id = {}
+                for output in sorted(folder.iterdir()):
+                    if output.is_file() and output.suffix.lower() == '.' + fmt.lower():
+                        match = re.search(r'\[([^\[\]]{6,})\]$', output.stem)
+                        if match:
+                            files_by_id[match.group(1)] = output
                 missing = []
                 pending = []
                 for index, entry in enumerate(playlist_entries, 1):
                     video_id = str(entry.get('id') or '')
+                    title = entry.get('title') or f'Item {index} (título indisponível)'
                     if video_id and video_id in completed_ids:
+                        saved = files_by_id.get(video_id)
+                        downloaded_items.append(f'{index}. {title}\n   Arquivo: {saved.name if saved else "baixado"}')
                         continue
-                    title = entry.get('title') or f'Item {index} (indisponível)'
                     link = entry.get('webpage_url') or entry.get('url') or ''
                     if link and not str(link).startswith('http') and video_id:
                         link = 'https://www.youtube.com/watch?v=' + video_id
                     item_text = f'{index}. {title}\n   {link}'
-                    if cancelled and not (video_id in attempted_ids or index in seen_indices):
+                    errors_so_far = '\n'.join(failed_messages)
+                    mentioned_in_errors = bool(video_id and video_id in errors_so_far)
+                    if cancelled and not (video_id in attempted_ids or index in seen_indices or mentioned_in_errors):
                         pending.append(item_text)
                     else:
                         missing.append(item_text)
@@ -723,21 +735,19 @@ class App(ctk.CTk):
                         if match and match.group(1) in errors:
                             pending.remove(item)
                             missing.append(item)
-                report = folder / ('RELATORIO_PLAYLIST_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f') + '.txt')
+                # A report is only generated if the user explicitly requests it.
+                # Keep PDFs out of the music download directory.
                 successful = [x.name for x in sorted(folder.iterdir()) if x.is_file() and x.suffix.lower() == '.' + fmt.lower() and re.search(r'\[([^\[\]]{6,})\]$', x.stem)]
-                body = ('DJ Tavares - Relatório de playlist\n'
-                    + 'Situação: ' + ('INTERROMPIDA PELO USUÁRIO' if cancelled else 'CONCLUÍDA')
-                    + '\nOrigem: ' + url + '\nPasta: ' + str(folder)
-                    + f'\nNovos arquivos registrados: {count}\nArquivos presentes na pasta: {len(successful)}'
-                    + f'\nFalhas detectadas: {len(missing)}\nNão tentadas: {len(pending)}\n'
-                    + '\n=== ARQUIVOS DISPONÍVEIS ===\n' + ('\n'.join(successful) or '(nenhum)')
-                    + '\n\n=== FALHAS NO PROCESSAMENTO ===\n' + ('\n\n'.join(missing) or '(nenhuma identificada)')
-                    + '\n\n=== NÃO TENTADAS (APÓS INTERRUPÇÃO) ===\n' + ('\n\n'.join(pending) or '(nenhuma)')
-                    + ('\n\n=== ERROS DA FONTE ===\n' + '\n'.join(dict.fromkeys(failed_messages)) if failed_messages else ''))
-                report.write_text(body, encoding='utf-8-sig')
-                self.events.put(('playlist_report', {'path': str(report), 'downloaded': count, 'failed': len(missing), 'pending': len(pending), 'cancelled': cancelled}))
+                self.events.put(('playlist_report', {
+                    'downloaded': count, 'present': len(successful),
+                    'failed': len(missing), 'pending': len(pending),
+                    'cancelled': cancelled, 'url': url, 'folder': str(folder),
+                    'downloaded_items': downloaded_items,
+                    'missing_items': missing, 'pending_items': pending,
+                    'failed_messages': list(dict.fromkeys(failed_messages)),
+                }))
             if cancelled:
-                self.events.put(('status', 'Download interrompido. Arquivos concluídos preservados e relatório salvo.'))
+                self.events.put(('status', 'Download interrompido. Arquivos concluídos preservados; escolha se deseja um relatório PDF.'))
             if count == 0 and not playlist:
                 raise RuntimeError('Download finalizado, mas não foi possível localizar os arquivos para registrar. Confira a pasta de destino.')
             self.events.put(('status', f'{count} arquivo(s) baixado(s) e registrado(s).'))
@@ -1155,6 +1165,95 @@ class App(ctk.CTk):
             self.events.put(('progress', (index + 1) / total))
         self.events.put(('done', None))
 
+    def show_playlist_report_options(self, data):
+        """Offer report scope after completion; never create a file by default."""
+        downloaded = data.get('downloaded', 0)
+        failed = data.get('failed', 0)
+        pending = data.get('pending', 0)
+        state = 'Interrompida' if data.get('cancelled') else 'Concluída'
+        self.status_var.set(f'Playlist {state.lower()}: {downloaded} novos; {failed} falhas; {pending} pendentes.')
+        dialog = ctk.CTkToplevel(self)
+        dialog.title('Resumo da playlist - DJ Tavares')
+        dialog.geometry('590x370')
+        dialog.minsize(550, 340)
+        dialog.configure(fg_color=BG)
+        dialog.transient(self)
+        dialog.grab_set()
+        ctk.CTkLabel(dialog, text='RELATÓRIO DA PLAYLIST', font=('Segoe UI', 19, 'bold'), text_color=WHITE).pack(pady=(22, 12))
+        ctk.CTkLabel(dialog, text=f'Situação: {state}  |  Novos arquivos: {downloaded}\nFalhas detectadas: {failed}  |  Ainda não tentadas: {pending}',
+            font=('Segoe UI', 14), text_color=MUTED, justify='center').pack(pady=(0, 14))
+        ctk.CTkLabel(dialog, text='Qual relatório deseja gerar?', text_color=WHITE).pack(pady=(0, 9))
+        def generate(mode):
+            try:
+                path = self.write_playlist_pdf(data, mode)
+                dialog.grab_release()
+                dialog.destroy()
+                self.status_var.set('PDF salvo em: ' + str(path))
+                if messagebox.askyesno('Relatório PDF', f'Relatório salvo em:\n{path}\n\nAbrir agora?'):
+                    try:
+                        os.startfile(str(path))
+                    except (OSError, AttributeError):
+                        webbrowser.open(path.as_uri())
+            except Exception as exc:
+                messagebox.showerror('Falha ao gerar PDF', str(exc), parent=dialog)
+        ctk.CTkButton(dialog, text='Relatório completo (baixadas + erros + pendentes)', height=39,
+            command=lambda: generate('full')).pack(fill='x', padx=38, pady=5)
+        ctk.CTkButton(dialog, text='Somente erros ocorridos', height=39, fg_color='#295278',
+            command=lambda: generate('errors')).pack(fill='x', padx=38, pady=5)
+        def dismiss():
+            dialog.grab_release()
+            dialog.destroy()
+        ctk.CTkButton(dialog, text='Não gerar relatório', height=35, fg_color='#354155',
+            command=dismiss).pack(fill='x', padx=38, pady=(5, 15))
+        dialog.protocol('WM_DELETE_WINDOW', dismiss)
+
+    @staticmethod
+    def write_playlist_pdf(data, mode):
+        """Write an opt-in PDF to the app's separate reports directory."""
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, KeepTogether
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER
+        from reportlab.lib.pagesizes import A4
+        from xml.sax.saxutils import escape
+        if mode not in ('full', 'errors'):
+            raise ValueError('Tipo de relatório inválido')
+        reports_dir = BASE / 'Relatorios'
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        kind = 'COMPLETO' if mode == 'full' else 'SOMENTE_ERROS'
+        path = reports_dir / f'DJ_TAVARES_PLAYLIST_{kind}_{stamp}.pdf'
+        styles = getSampleStyleSheet()
+        styles.add(ParagraphStyle(name='DJTitle', parent=styles['Title'], textColor=colors.HexColor('#1362A4'), fontSize=17, alignment=TA_CENTER, spaceAfter=15))
+        styles.add(ParagraphStyle(name='DJItem', parent=styles['BodyText'], leading=15, spaceAfter=9, wordWrap='CJK'))
+        doc = SimpleDocTemplate(str(path), pagesize=A4, rightMargin=45, leftMargin=45, topMargin=42, bottomMargin=42)
+        story = [Paragraph('DJ TAVARES | RELATÓRIO DE PLAYLIST', styles['DJTitle'])]
+        status = 'INTERROMPIDA' if data.get('cancelled') else 'CONCLUÍDA'
+        info = [f'Situação: {status}', f'Data: {datetime.now():%d/%m/%Y %H:%M}',
+                f'Novos arquivos registrados: {data.get("downloaded", 0)}',
+                f'Falhas detectadas: {data.get("failed", 0)}',
+                f'Pendentes não tentadas: {data.get("pending", 0)}',
+                f'Origem: {data.get("url", "")}']
+        for line in info:
+            story.append(Paragraph(escape(str(line)), styles['DJItem']))
+        def section(title, entries):
+            story.append(Spacer(1, 12))
+            story.append(Paragraph(escape(title), styles['Heading2']))
+            if not entries:
+                story.append(Paragraph('Nenhum item identificado.', styles['DJItem']))
+            for entry in entries:
+                story.append(Paragraph(escape(str(entry)).replace('\n', '<br/>'), styles['DJItem']))
+        if mode == 'full':
+            section('Músicas baixadas com sucesso', data.get('downloaded_items', []))
+        section('Falhas durante o download', data.get('missing_items', []))
+        if mode == 'full':
+            section('Músicas pendentes (não tentadas)', data.get('pending_items', []))
+        # Technical error details may help identify unavailable/private tracks.
+        if data.get('failed_messages'):
+            section('Mensagens de erro da origem', data['failed_messages'])
+        doc.build(story)
+        return path
+
     def poll_events(self):
         try:
             while True:
@@ -1173,23 +1272,7 @@ class App(ctk.CTk):
                     self.had_error = True
                     self.status_var.set('Erro: ' + value)
                 elif kind == 'playlist_report':
-                    path = value.get('path')
-                    downloaded = value.get('downloaded', 0)
-                    failed = value.get('failed', 0)
-                    pending = value.get('pending', 0)
-                    interrupted = value.get('cancelled', False)
-                    if path:
-                        self.status_var.set(f'Playlist: {downloaded} novos; {failed} falhas; {pending} não tentados. Relatório: {path}')
-                        if messagebox.askyesno('Relatório de playlist',
-                            f'Novos arquivos registrados: {downloaded}\n'
-                            f'Falhas detectadas: {failed}\nNão tentadas: {pending}\nSituação: {"Interrompida" if interrupted else "Concluída"}\n\n'
-                            f'Relatório salvo em:\n{path}\n\nAbrir relatório agora?'):
-                            try:
-                                os.startfile(path)
-                            except (OSError, AttributeError):
-                                webbrowser.open(Path(path).as_uri())
-                    else:
-                        self.status_var.set(f'Playlist concluída: {downloaded} novo(s) arquivo(s), nenhuma falha identificada.')
+                    self.show_playlist_report_options(value)
                 elif kind == 'transfer_detail':
                     if self.page == 'Links' and hasattr(self, 'transfer_detail') and self.transfer_detail.winfo_exists():
                         self.transfer_detail.configure(text=value[:110])
