@@ -20,6 +20,9 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
+from embedded_ui import EMBEDDED_UI
+from io import BytesIO
+from PIL import Image
 
 # Locate bundled FFmpeg tools in a PyInstaller onedir build.
 _BUNDLE = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
@@ -81,7 +84,7 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('DJ Tavares | Studio Pro V1.5.4 Beta')
+        self.title('DJ Tavares | Studio Pro V1.5.4.1 Beta')
         self._window_icon = None
         try:
             self.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
@@ -137,37 +140,36 @@ class App(ctk.CTk):
         self.after(120, self.poll_events)
 
     def ui_icon(self, name, size=(26, 26)):
-        """Keep strong references and report missing assets visibly."""
-        from PIL import Image
-        path = _BUNDLE / 'assets' / 'ui' / (name + '.png')
-        if not path.is_file():
-            raise FileNotFoundError(f'Ícone ausente: {path}')
-        im = Image.open(path).convert('RGBA')
+        """Carrega imagem embutida, independente de _MEIPASS e da pasta _internal."""
+        if name not in EMBEDDED_UI:
+            raise KeyError(f'Recurso visual desconhecido: {name}')
+        im = Image.open(BytesIO(base64.b64decode(EMBEDDED_UI[name]))).convert('RGBA')
         result = ctk.CTkImage(light_image=im, dark_image=im, size=size)
         self._ui_images[name] = result
         return result
 
     def build_shell(self):
         self._ui_images = {}
-        self.sidebar = ctk.CTkFrame(self, fg_color='#071527', width=220, corner_radius=0)
+        self._visual_errors = []
+        self.sidebar = ctk.CTkFrame(self, fg_color='#071527', width=244, corner_radius=0)
         self.sidebar.pack(side='left', fill='y')
         self.sidebar.pack_propagate(False)
         self.nav_buttons = {}
         brand = ctk.CTkFrame(self.sidebar, fg_color='transparent')
         brand.pack(fill='x', padx=10, pady=(22, 26))
         try:
-            logo = self.ui_icon('studio_logo', (190, 180))
+            logo = self.ui_icon('studio_logo', (188, 177))
             ctk.CTkLabel(brand, text='', image=logo).pack()
         except Exception as exc:
             ctk.CTkLabel(brand, text='DJ TAVARES', font=('Segoe UI', 20, 'bold'), text_color=WHITE).pack(pady=35)
-            self.after(900, lambda: messagebox.showerror('Recursos visuais', str(exc)))
+            self.after(900, lambda e=str(exc): messagebox.showerror('Recursos visuais', e))
         ctk.CTkLabel(self.sidebar, text='  FERRAMENTAS', font=('Segoe UI', 11, 'bold'), text_color='#6F95C1').pack(anchor='w', padx=18, pady=(0, 12))
         for name, asset in [('Conversor','converter'),('Studio DJ','studio'),('Links','links'),('Biblioteca','library'),('Histórico','history'),('Configurações','settings')]:
             try:
                 ico = self.ui_icon(asset, (28,28))
             except Exception as exc:
                 ico = None
-                print('[Studio Pro] ERRO DE RECURSO:', exc, file=sys.stderr)
+                self._visual_errors.append(f'{name}: {exc}')
             btn = ctk.CTkButton(self.sidebar, text=name, image=ico, compound='left', height=56,
                 corner_radius=10, anchor='w', font=('Segoe UI', 14, 'bold'),
                 fg_color='transparent', text_color='#E2ECFF', hover_color='#173B64',
@@ -180,18 +182,19 @@ class App(ctk.CTk):
         ctk.CTkLabel(foot, text='DJ Tavares • Studio Pro', text_color=MUTED, font=('Segoe UI', 10)).pack(anchor='w', padx=12, pady=(0, 13))
         self.content = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         self.content.pack(side='left', fill='both', expand=True, padx=16, pady=12)
+        if self._visual_errors:
+            self.after(1200, lambda: messagebox.showerror('Erro de ícones', '\n'.join(self._visual_errors)))
 
     def clear(self):
         for child in self.content.winfo_children():
             child.destroy()
 
     def header(self, title, subtitle):
-        from PIL import Image
         banner = ctk.CTkFrame(self.content, fg_color='#061527', corner_radius=12, border_width=1, border_color='#124E85')
         banner.pack(fill='x', pady=(0, 13))
         try:
-            im = Image.open(_BUNDLE / 'assets' / 'studio_header.jpg')
-            self._ui_images['header'] = ctk.CTkImage(light_image=im, dark_image=im, size=(1080, 88))
+            im = Image.open(BytesIO(base64.b64decode(EMBEDDED_UI['studio_header'])))
+            self._ui_images['header'] = ctk.CTkImage(light_image=im, dark_image=im, size=(1180, 97))
             ctk.CTkLabel(banner, text='', image=self._ui_images['header']).pack(side='left', fill='x', expand=True)
         except Exception:
             ctk.CTkLabel(banner, text='DJ TAVARES   |   STUDIO PRO', font=('Segoe UI', 20, 'bold'), text_color=WHITE).pack(pady=20)
