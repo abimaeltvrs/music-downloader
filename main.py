@@ -77,7 +77,7 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('DJ Tavares | Music Downloader V1.4 Beta')
+        self.title('DJ Tavares | Music Downloader V1.4.1 Beta')
         try:
             self.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
         except Exception:
@@ -103,6 +103,9 @@ class App(ctk.CTk):
         self.url_var = tk.StringVar(value='')
         self.link_format = tk.StringVar(value='MP3')
         self.link_playlist = tk.BooleanVar(value=False)
+        self.link_audio_quality = tk.StringVar(value='320')
+        self.link_video_quality = tk.StringVar(value='1080p')
+        self.stem_quality = tk.StringVar(value='Rápido')
         self.fade_in_var = tk.BooleanVar(value=False)
         self.fade_out_var = tk.BooleanVar(value=False)
         self.fade_duration_var = tk.StringVar(value='3')
@@ -122,7 +125,7 @@ class App(ctk.CTk):
             ctk.CTkLabel(self.sidebar, text='', image=self.brand_image).pack(anchor='w', padx=14, pady=(12, 0))
         except Exception:
             ctk.CTkLabel(self.sidebar, text='DJ TAVARES', font=('Segoe UI', 24, 'bold'), text_color=WHITE).pack(anchor='w', padx=20, pady=(28, 0))
-        ctk.CTkLabel(self.sidebar, text='STUDIO PRO  •  V1.4 BETA', font=('Segoe UI', 10), text_color=MUTED).pack(anchor='w', padx=20, pady=(0, 20))
+        ctk.CTkLabel(self.sidebar, text='STUDIO PRO  •  V1.4.1 BETA', font=('Segoe UI', 10), text_color=MUTED).pack(anchor='w', padx=20, pady=(0, 20))
         for name, symbol in [('Conversor', '↪'), ('Studio DJ', '🎚'), ('Links', '↓'), ('Biblioteca', '♫'), ('Histórico', '◷'), ('Configurações', '⚙')]:
             ctk.CTkButton(self.sidebar, text=f'{symbol}   {name}', height=43, anchor='w', fg_color='transparent', hover_color='#223754', command=lambda n=name: self.show_page(n)).pack(fill='x', padx=12, pady=4)
         ctk.CTkLabel(self.sidebar, text='WINDOWS DESKTOP', text_color=MUTED, font=('Segoe UI', 10)).pack(side='bottom', pady=24)
@@ -199,6 +202,9 @@ class App(ctk.CTk):
             ctk.CTkOptionMenu(card, values=['Somente voz', 'Somente instrumental', 'Voz + Instrumental', '4 stems (voz, bateria, baixo, outros)'], variable=self.stem_mode, width=380, fg_color='#253A5A', button_color=ACCENT).pack(anchor='w', padx=20, pady=(8, 16))
             ctk.CTkLabel(card, text='Formato dos arquivos separados', text_color=WHITE).pack(anchor='w', padx=20)
             ctk.CTkOptionMenu(card, values=['WAV', 'MP3'], variable=self.stem_format, width=180, fg_color='#253A5A', button_color=ACCENT).pack(anchor='w', padx=20, pady=(8, 16))
+            ctk.CTkLabel(card, text='Qualidade da separação', text_color=WHITE).pack(anchor='w', padx=20)
+            ctk.CTkOptionMenu(card, values=['Rápido', 'Alta qualidade'], variable=self.stem_quality, width=220, fg_color='#253A5A').pack(anchor='w', padx=20, pady=(8, 14))
+            ctk.CTkButton(card, text='▥ Editor visual para selecionar trecho', command=self.open_waveform_editor, fg_color=ACCENT).pack(anchor='w', padx=20, pady=(0, 12))
             ctk.CTkCheckBox(card, text='Aplicar corte antes da separação', variable=self.trim_enabled, text_color=WHITE).pack(anchor='w', padx=20, pady=(0, 10))
             times = ctk.CTkFrame(card, fg_color='transparent')
             times.pack(anchor='w', padx=20, pady=(0, 18))
@@ -226,6 +232,11 @@ class App(ctk.CTk):
             ctk.CTkEntry(panel, textvariable=self.url_var, height=42).pack(fill='x', padx=20)
             ctk.CTkLabel(panel, text='Formato de saida', text_color=WHITE).pack(anchor='w', padx=20, pady=(15, 8))
             ctk.CTkOptionMenu(panel, values=['MP3', 'MP4', 'WAV'], variable=self.link_format, fg_color='#253A5A').pack(anchor='w', padx=20)
+            ctk.CTkLabel(panel, text='Qualidade MP3 (kbps)', text_color=WHITE).pack(anchor='w', padx=20, pady=(12, 4))
+            ctk.CTkOptionMenu(panel, values=['128', '192', '256', '320'], variable=self.link_audio_quality, width=190).pack(anchor='w', padx=20)
+            ctk.CTkLabel(panel, text='Resolução MP4 (máximo disponível)', text_color=WHITE).pack(anchor='w', padx=20, pady=(12, 4))
+            ctk.CTkOptionMenu(panel, values=['360p', '480p', '720p', '1080p', 'Melhor disponível'], variable=self.link_video_quality, width=220).pack(anchor='w', padx=20)
+            ctk.CTkLabel(panel, text='Spotify: identifica a música, mas não extrai áudio protegido. Links diretos Spotify são informativos.', text_color=MUTED, wraplength=700).pack(anchor='w', padx=20, pady=(10, 0))
             ctk.CTkCheckBox(panel, text='Baixar playlist inteira (quando permitido)', variable=self.link_playlist, fg_color=ACCENT).pack(anchor='w', padx=20, pady=(12, 0))
             ctk.CTkLabel(panel, text='Pasta de destino', text_color=WHITE).pack(anchor='w', padx=20, pady=(15, 8))
             ctk.CTkEntry(panel, textvariable=self.output_var).pack(fill='x', padx=20)
@@ -276,6 +287,9 @@ class App(ctk.CTk):
         if not url.startswith(('https://', 'http://')):
             messagebox.showwarning('Link invalido', 'Informe uma URL HTTP ou HTTPS valida.')
             return
+        if 'open.spotify.com/' in url.lower():
+            self.lookup_spotify(url)
+            return
         if not shutil.which('ffmpeg'):
             messagebox.showerror('FFmpeg', 'FFmpeg nao encontrado no pacote.')
             return
@@ -293,9 +307,26 @@ class App(ctk.CTk):
         self.had_error = False
         self.busy = True
         self.link_button.configure(state='disabled')
-        threading.Thread(target=self.link_worker, args=(url, folder, self.link_format.get(), self.link_playlist.get()), daemon=True).start()
+        threading.Thread(target=self.link_worker, args=(url, folder, self.link_format.get(), self.link_playlist.get(), self.link_audio_quality.get(), self.link_video_quality.get()), daemon=True).start()
 
-    def link_worker(self, url, folder, fmt, playlist):
+    def lookup_spotify(self, url):
+        """Display Spotify metadata; Spotify audio cannot be downloaded by this app."""
+        def work():
+            try:
+                import urllib.parse, urllib.request
+                endpoint = 'https://open.spotify.com/oembed?url=' + urllib.parse.quote(url, safe='')
+                req = urllib.request.Request(endpoint, headers={'User-Agent': 'DJTavares/1.4.1'})
+                with urllib.request.urlopen(req, timeout=12) as response:
+                    data = json.load(response)
+                title = data.get('title', 'Música não identificada')
+                artist = data.get('author_name', '')
+                self.after(0, lambda: messagebox.showinfo('Spotify — música identificada',
+                    f'{title}\n{artist}\n\nO Spotify não permite baixar seu áudio protegido em MP3 por esta integração.\nUse um arquivo local ou uma fonte que autorize o download.'))
+            except Exception as exc:
+                self.after(0, lambda msg=str(exc): messagebox.showerror('Spotify', 'Não foi possível identificar o link: ' + msg))
+        threading.Thread(target=work, daemon=True).start()
+
+    def link_worker(self, url, folder, fmt, playlist, bitrate='320', resolution='1080p'):
         """Record completed files, including individual items from playlists."""
         try:
             import yt_dlp
@@ -328,11 +359,13 @@ class App(ctk.CTk):
                 'ignoreerrors': False,
             }
             if fmt == 'MP4':
-                options['format'] = 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b'
+                height = int(resolution[:-1]) if resolution.endswith('p') else None
+                limit = f'[height<={height}]' if height else ''
+                options['format'] = f'bv*[ext=mp4]{limit}+ba[ext=m4a]/bv*{limit}+ba/b[ext=mp4]{limit}/b{limit}'
                 options['merge_output_format'] = 'mp4'
             else:
                 options['format'] = 'bestaudio/best'
-                options['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': fmt.lower(), 'preferredquality': '320' if fmt == 'MP3' else '0'}]
+                options['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': fmt.lower(), 'preferredquality': bitrate if fmt == 'MP3' else '0'}]
             self.events.put(('status', 'Baixando conteúdo autorizado; arquivos longos podem demorar...'))
             with yt_dlp.YoutubeDL(options) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -397,9 +430,9 @@ class App(ctk.CTk):
         self.had_error = False
         self.busy = True
         self.stem_button.configure(state='disabled')
-        threading.Thread(target=self.stems_worker, args=(list(self.files), folder, self.stem_mode.get(), self.stem_format.get(), start, end), daemon=True).start()
+        threading.Thread(target=self.stems_worker, args=(list(self.files), folder, self.stem_mode.get(), self.stem_format.get(), start, end, self.stem_quality.get()), daemon=True).start()
 
-    def stems_worker(self, files, folder, mode, fmt, start, end):
+    def stems_worker(self, files, folder, mode, fmt, start, end, quality='Rápido'):
         ffmpeg = shutil.which('ffmpeg')
         try:
             for idx, src in enumerate(files):
@@ -420,6 +453,8 @@ class App(ctk.CTk):
                     cmd = ([sys.executable, '--demucs-worker'] if getattr(sys, 'frozen', False) else [sys.executable, '-m', 'demucs.separate']) + ['-n', model, '-o', str(td / 'separated')]
                     if not mode.startswith('4 stems'):
                         cmd += ['--two-stems', 'vocals']
+                    if quality == 'Alta qualidade':
+                        cmd += ['--shifts', '2', '--overlap', '0.5']
                     cmd += [str(source)]
                     self.run_checked(cmd, timeout=10800)
                     output_dir = td / 'separated' / model / source.stem
@@ -488,7 +523,7 @@ class App(ctk.CTk):
         src = self.files[0]
         win = ctk.CTkToplevel(self)
         win.title('DJ Tavares | Editor visual')
-        win.geometry('900x420')
+        win.geometry('980x570')
         win.configure(fg_color=BG)
         win.transient(self)
         ctk.CTkLabel(win, text='Editor visual • ' + src.name, font=('Segoe UI', 18, 'bold')).pack(padx=20, pady=(18, 4), anchor='w')
@@ -497,7 +532,7 @@ class App(ctk.CTk):
         canvas.pack(fill='x', padx=20, pady=(20, 10))
         info = ctk.CTkLabel(win, text='Carregando forma de onda...', text_color=MUTED)
         info.pack(pady=5)
-        state = {'duration': 0, 'samples': [], 'start': 0., 'end': 0., 'drag': False}
+        state = {'duration': 0, 'samples': [], 'start': 0., 'end': 0., 'drag': False, 'cursor': 0., 'playing': False, 'started': 0., 'preview_file': None}
         def fmt(seconds):
             return f'{int(seconds//3600):02d}:{int(seconds%3600//60):02d}:{seconds%60:05.2f}'
         def draw():
@@ -513,6 +548,8 @@ class App(ctk.CTk):
                 amp = samples[idx] * (h*.44)
                 canvas.create_line(x, h/2-amp, x, h/2+amp, fill='#328CFF')
             duration = state['duration']
+            if not duration: return
+            canvas.create_line(state['cursor']/duration*w, 0, state['cursor']/duration*w, h, fill='#FFCC55', width=2, tags='playhead')
             a = int(min(state['start'], state['end']) / duration * w)
             b = int(max(state['start'], state['end']) / duration * w)
             canvas.create_rectangle(a, 0, b, h, outline='#86D7FF', width=2, fill='', stipple='gray25')
@@ -533,10 +570,55 @@ class App(ctk.CTk):
         def up(event):
             state['drag'] = False
             move(event)
+        def seek(event):
+            state['cursor'] = pos(event)
+            stop_audio()
+            draw()
+        canvas.bind('<Button-3>', seek)
         canvas.bind('<Button-1>', down)
         canvas.bind('<B1-Motion>', move)
         canvas.bind('<ButtonRelease-1>', up)
         canvas.bind('<Configure>', lambda e: draw())
+        import time
+        def stop_audio():
+            state['playing'] = False
+            try:
+                import winsound
+                winsound.PlaySound(None, winsound.SND_PURGE)
+            except Exception: pass
+        def play_audio(selection=False):
+            if not state['duration']: return
+            stop_audio()
+            start, end = sorted((state['start'], state['end'])) if selection else (state['cursor'], state['duration'])
+            if end-start < .1: return
+            def prepare():
+                try:
+                    import winsound
+                    fd, filename = tempfile.mkstemp(prefix='dj_tavares_player_', suffix='.wav'); os.close(fd)
+                    cmd = [ffmpeg, '-y', '-nostdin', '-v', 'error', '-ss', str(start), '-i', str(src), '-t', str(end-start), '-vn', '-ac', '2', '-ar', '22050', '-c:a', 'pcm_s16le', filename]
+                    self.run_checked(cmd, timeout=240)
+                    def begin():
+                        if not win.winfo_exists(): return
+                        state['preview_file'] = filename
+                        state['cursor'] = start
+                        state['started'] = time.monotonic()
+                        state['play_from'] = start
+                        state['playing'] = True
+                        state['stop_at'] = end
+                        winsound.PlaySound(filename, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                        tick()
+                    self.after(0, begin)
+                except Exception as exc:
+                    self.after(0, lambda msg=str(exc): info.configure(text='Falha na prévia: '+msg) if win.winfo_exists() else None)
+            threading.Thread(target=prepare, daemon=True).start()
+        def tick():
+            if not win.winfo_exists() or not state['playing']: return
+            state['cursor'] = min(state['stop_at'], state['cursor'] if not state['started'] else state['play_from'] + time.monotonic()-state['started'])
+            draw()
+            if state['cursor'] >= state['stop_at']:
+                stop_audio()
+            else:
+                win.after(90, tick)
         def apply():
             a, b = sorted((state['start'], state['end']))
             if b-a < .1:
@@ -545,11 +627,25 @@ class App(ctk.CTk):
             self.trim_start.set(fmt(a))
             self.trim_end.set(fmt(b))
             self.trim_enabled.set(True)
+            stop_audio()
             win.destroy()
+        player = ctk.CTkFrame(win, fg_color=PANEL)
+        player.pack(fill='x', padx=20, pady=(4, 4))
+        ctk.CTkButton(player, text='▶ Reproduzir', command=play_audio, width=125).pack(side='left', padx=8, pady=8)
+        ctk.CTkButton(player, text='▶ Ouvir seleção', command=lambda: play_audio(True), width=140).pack(side='left', padx=8)
+        ctk.CTkButton(player, text='■ Parar', command=stop_audio, width=90, fg_color='#34445C').pack(side='left', padx=8)
+        ctk.CTkLabel(player, text='Botão direito na onda: posicionar reprodução', text_color=MUTED).pack(side='left', padx=10)
+        fades = ctk.CTkFrame(win, fg_color='transparent')
+        fades.pack(fill='x', padx=20, pady=6)
+        ctk.CTkCheckBox(fades, text='Fade-in', variable=self.fade_in_var).pack(side='left', padx=8)
+        ctk.CTkCheckBox(fades, text='Fade-out', variable=self.fade_out_var).pack(side='left', padx=8)
+        ctk.CTkLabel(fades, text='Duração (segundos)').pack(side='left', padx=8)
+        ctk.CTkEntry(fades, textvariable=self.fade_duration_var, width=70).pack(side='left')
+        win.protocol('WM_DELETE_WINDOW', lambda: (stop_audio(), win.destroy()))
         buttons = ctk.CTkFrame(win, fg_color='transparent')
         buttons.pack(fill='x', padx=20, pady=10)
         ctk.CTkButton(buttons, text='Aplicar seleção ao corte', command=apply, width=220).pack(side='right')
-        ctk.CTkButton(buttons, text='Cancelar', fg_color='#34445C', command=win.destroy).pack(side='right', padx=8)
+        ctk.CTkButton(buttons, text='Cancelar', fg_color='#34445C', command=lambda: (stop_audio(), win.destroy())).pack(side='right', padx=8)
         def generate():
             try:
                 probe = subprocess.run([ffprobe, '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', str(src)], capture_output=True, text=True, timeout=30, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
