@@ -8,6 +8,8 @@ import shutil
 import subprocess
 import threading
 import atexit
+import math
+import struct
 from datetime import datetime
 from pathlib import Path
 import tkinter as tk
@@ -75,7 +77,11 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('Music Downloader | Desktop Edition')
+        self.title('DJ Tavares | Music Downloader V1.4 Beta')
+        try:
+            self.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
+        except Exception:
+            pass
         self.preview_path = None
         self.geometry('1080x750')
         self.minsize(850, 560)
@@ -97,6 +103,9 @@ class App(ctk.CTk):
         self.url_var = tk.StringVar(value='')
         self.link_format = tk.StringVar(value='MP3')
         self.link_playlist = tk.BooleanVar(value=False)
+        self.fade_in_var = tk.BooleanVar(value=False)
+        self.fade_out_var = tk.BooleanVar(value=False)
+        self.fade_duration_var = tk.StringVar(value='3')
         self.status_var = tk.StringVar(value='Pronto para converter arquivos autorizados.')
         self.build_shell()
         self.show_page('Conversor')
@@ -106,8 +115,14 @@ class App(ctk.CTk):
         self.sidebar = ctk.CTkFrame(self, fg_color='#0F1726', width=210, corner_radius=0)
         self.sidebar.pack(side='left', fill='y')
         self.sidebar.pack_propagate(False)
-        ctk.CTkLabel(self.sidebar, text='♫  MUSIC', font=('Segoe UI', 25, 'bold'), text_color=WHITE).pack(anchor='w', padx=22, pady=(28, 0))
-        ctk.CTkLabel(self.sidebar, text='DOWNLOADER  •  V1.3.2', font=('Segoe UI', 10), text_color=MUTED).pack(anchor='w', padx=24, pady=(0, 38))
+        self.brand_image = None
+        try:
+            from PIL import Image as PILImage
+            self.brand_image = ctk.CTkImage(light_image=PILImage.open(_BUNDLE / 'assets' / 'dj_tavares_banner.png'), dark_image=PILImage.open(_BUNDLE / 'assets' / 'dj_tavares_banner.png'), size=(178, 115))
+            ctk.CTkLabel(self.sidebar, text='', image=self.brand_image).pack(anchor='w', padx=14, pady=(12, 0))
+        except Exception:
+            ctk.CTkLabel(self.sidebar, text='DJ TAVARES', font=('Segoe UI', 24, 'bold'), text_color=WHITE).pack(anchor='w', padx=20, pady=(28, 0))
+        ctk.CTkLabel(self.sidebar, text='STUDIO PRO  •  V1.4 BETA', font=('Segoe UI', 10), text_color=MUTED).pack(anchor='w', padx=20, pady=(0, 20))
         for name, symbol in [('Conversor', '↪'), ('Studio DJ', '🎚'), ('Links', '↓'), ('Biblioteca', '♫'), ('Histórico', '◷'), ('Configurações', '⚙')]:
             ctk.CTkButton(self.sidebar, text=f'{symbol}   {name}', height=43, anchor='w', fg_color='transparent', hover_color='#223754', command=lambda n=name: self.show_page(n)).pack(fill='x', padx=12, pady=4)
         ctk.CTkLabel(self.sidebar, text='WINDOWS DESKTOP', text_color=MUTED, font=('Segoe UI', 10)).pack(side='bottom', pady=24)
@@ -152,7 +167,14 @@ class App(ctk.CTk):
             ctk.CTkEntry(cut_row, textvariable=self.trim_start, width=105, placeholder_text='00:00').pack(side='left', padx=(0, 18))
             ctk.CTkLabel(cut_row, text='Fim').pack(side='left', padx=(0, 8))
             ctk.CTkEntry(cut_row, textvariable=self.trim_end, width=105, placeholder_text='03:30').pack(side='left')
+            ctk.CTkButton(cut_row, text='▥ Editor visual', width=130, fg_color=ACCENT, command=self.open_waveform_editor).pack(side='right', padx=(8, 0))
             ctk.CTkButton(cut_row, text='▶ Prévia', width=100, fg_color='#263B5B', command=self.preview_cut).pack(side='right')
+            effects = ctk.CTkFrame(cut, fg_color='transparent')
+            effects.pack(fill='x', padx=20, pady=(0, 9))
+            ctk.CTkCheckBox(effects, text='Fade-in', variable=self.fade_in_var, width=100).pack(side='left')
+            ctk.CTkCheckBox(effects, text='Fade-out', variable=self.fade_out_var, width=110).pack(side='left', padx=(15, 0))
+            ctk.CTkLabel(effects, text='Duração (s):').pack(side='left', padx=(18, 5))
+            ctk.CTkEntry(effects, textvariable=self.fade_duration_var, width=60).pack(side='left')
             ctk.CTkLabel(cut, text='Horários em MM:SS ou HH:MM:SS. Fim vazio = até terminar. O mesmo corte será aplicado a todos os arquivos.', text_color=MUTED, font=('Segoe UI', 11), wraplength=620).pack(anchor='w', padx=20, pady=(0, 13))
             ctk.CTkLabel(self.content, text='Pasta de destino', text_color=WHITE).pack(anchor='w')
             destination = ctk.CTkFrame(self.content, fg_color='transparent')
@@ -453,6 +475,104 @@ class App(ctk.CTk):
             raise ValueError('O fim do corte deve ser maior que o início.')
         return start, end
 
+    def open_waveform_editor(self):
+        """Interactive waveform selection using mouse; keeps manual time fields synchronized."""
+        if not self.files:
+            messagebox.showwarning('Editor visual', 'Selecione uma música primeiro.')
+            return
+        ffmpeg = shutil.which('ffmpeg')
+        ffprobe = shutil.which('ffprobe')
+        if not ffmpeg or not ffprobe:
+            messagebox.showerror('Editor visual', 'FFmpeg/FFprobe não encontrados.')
+            return
+        src = self.files[0]
+        win = ctk.CTkToplevel(self)
+        win.title('DJ Tavares | Editor visual')
+        win.geometry('900x420')
+        win.configure(fg_color=BG)
+        win.transient(self)
+        ctk.CTkLabel(win, text='Editor visual • ' + src.name, font=('Segoe UI', 18, 'bold')).pack(padx=20, pady=(18, 4), anchor='w')
+        ctk.CTkLabel(win, text='Clique e arraste na onda para marcar o trecho. O corte será aplicado na conversão.', text_color=MUTED).pack(padx=20, anchor='w')
+        canvas = tk.Canvas(win, height=190, bg='#111D30', highlightthickness=0, cursor='crosshair')
+        canvas.pack(fill='x', padx=20, pady=(20, 10))
+        info = ctk.CTkLabel(win, text='Carregando forma de onda...', text_color=MUTED)
+        info.pack(pady=5)
+        state = {'duration': 0, 'samples': [], 'start': 0., 'end': 0., 'drag': False}
+        def fmt(seconds):
+            return f'{int(seconds//3600):02d}:{int(seconds%3600//60):02d}:{seconds%60:05.2f}'
+        def draw():
+            canvas.delete('all')
+            w = max(canvas.winfo_width(), 200)
+            h = max(canvas.winfo_height(), 100)
+            samples = state['samples']
+            if not samples:
+                return
+            n = len(samples)
+            for x in range(w):
+                idx = min(n-1, int(x*n/w))
+                amp = samples[idx] * (h*.44)
+                canvas.create_line(x, h/2-amp, x, h/2+amp, fill='#328CFF')
+            duration = state['duration']
+            a = int(min(state['start'], state['end']) / duration * w)
+            b = int(max(state['start'], state['end']) / duration * w)
+            canvas.create_rectangle(a, 0, b, h, outline='#86D7FF', width=2, fill='', stipple='gray25')
+            canvas.create_line(a, 0, a, h, fill='#D4F2FF', width=3)
+            canvas.create_line(b, 0, b, h, fill='#D4F2FF', width=3)
+            info.configure(text=f'Início: {fmt(min(state["start"], state["end"]))}   •   Fim: {fmt(max(state["start"], state["end"]))}   •   Duração total: {fmt(duration)}')
+        def pos(event):
+            return max(0., min(state['duration'], event.x/max(canvas.winfo_width(), 1)*state['duration']))
+        def down(event):
+            if state['duration']:
+                state['start'] = state['end'] = pos(event)
+                state['drag'] = True
+                draw()
+        def move(event):
+            if state['drag']:
+                state['end'] = pos(event)
+                draw()
+        def up(event):
+            state['drag'] = False
+            move(event)
+        canvas.bind('<Button-1>', down)
+        canvas.bind('<B1-Motion>', move)
+        canvas.bind('<ButtonRelease-1>', up)
+        canvas.bind('<Configure>', lambda e: draw())
+        def apply():
+            a, b = sorted((state['start'], state['end']))
+            if b-a < .1:
+                messagebox.showwarning('Seleção', 'Marque um trecho com pelo menos 0,1 segundo.', parent=win)
+                return
+            self.trim_start.set(fmt(a))
+            self.trim_end.set(fmt(b))
+            self.trim_enabled.set(True)
+            win.destroy()
+        buttons = ctk.CTkFrame(win, fg_color='transparent')
+        buttons.pack(fill='x', padx=20, pady=10)
+        ctk.CTkButton(buttons, text='Aplicar seleção ao corte', command=apply, width=220).pack(side='right')
+        ctk.CTkButton(buttons, text='Cancelar', fg_color='#34445C', command=win.destroy).pack(side='right', padx=8)
+        def generate():
+            try:
+                probe = subprocess.run([ffprobe, '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', str(src)], capture_output=True, text=True, timeout=30, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                duration = float(probe.stdout.strip())
+                if duration <= 0:
+                    raise ValueError('Duração inválida')
+                # Limit decoding to 60k samples even for long audio files.
+                rate = max(1, min(400, int(60000 / duration)))
+                raw = subprocess.run([ffmpeg, '-nostdin', '-v', 'error', '-i', str(src), '-vn', '-ac', '1', '-ar', str(rate), '-f', 's16le', '-'], capture_output=True, timeout=180, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                if raw.returncode:
+                    raise RuntimeError(raw.stderr.decode(errors='replace')[-250:])
+                values = memoryview(raw.stdout).cast('h')
+                chunk = max(1, len(values)//1600)
+                samples = [max(abs(v) for v in values[i:i+chunk])/32768 for i in range(0,len(values),chunk)]
+                def loaded():
+                    if not win.winfo_exists(): return
+                    state.update(duration=duration, samples=samples, start=0., end=duration)
+                    draw()
+                self.after(0, loaded)
+            except Exception as exc:
+                self.after(0, lambda msg=str(exc): info.configure(text='Não foi possível carregar: ' + msg) if win.winfo_exists() else None)
+        threading.Thread(target=generate, daemon=True).start()
+
     def preview_cut(self):
         """Render a short PCM WAV preview using bundled FFmpeg; play with Windows audio."""
         if not self.files:
@@ -515,9 +635,18 @@ class App(ctk.CTk):
         save_json(CONFIG, self.settings)
         self.busy = True
         self.start_button.configure(state='disabled')
-        threading.Thread(target=self.worker, args=(ffmpeg, list(self.files), folder, self.format_var.get(), self.bitrate_var.get(), start, end), daemon=True).start()
+        try:
+            fade_seconds = float(self.fade_duration_var.get().replace(',', '.'))
+            if not 0 <= fade_seconds <= 60:
+                raise ValueError()
+        except ValueError:
+            self.busy = False
+            self.start_button.configure(state='normal')
+            messagebox.showerror('Fade inválido', 'Informe uma duração de 0 a 60 segundos.')
+            return
+        threading.Thread(target=self.worker, args=(ffmpeg, list(self.files), folder, self.format_var.get(), self.bitrate_var.get(), start, end, self.fade_in_var.get(), self.fade_out_var.get(), fade_seconds), daemon=True).start()
 
-    def worker(self, ffmpeg, files, folder, fmt, bitrate, start, end):
+    def worker(self, ffmpeg, files, folder, fmt, bitrate, start, end, fade_in, fade_out, fade_seconds):
         total = len(files)
         for index, src in enumerate(files):
             self.events.put(('status', f'Convertendo {index + 1}/{total}: {src.name}'))
@@ -533,6 +662,26 @@ class App(ctk.CTk):
             if end is not None:
                 command += ['-t', str(end - (start or 0))]
             command += ['-vn']
+            if (fade_in or fade_out) and fade_seconds:
+                filters = []
+                if fade_in:
+                    filters.append(f'afade=t=in:st=0:d={fade_seconds:g}')
+                if fade_out:
+                    duration = (end - (start or 0)) if end is not None else None
+                    if duration is None:
+                        probe = shutil.which('ffprobe')
+                        if probe:
+                            try:
+                                r = subprocess.run([probe, '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', str(src)], capture_output=True, text=True, timeout=30, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                                duration = float(r.stdout.strip()) - (start or 0)
+                            except (ValueError, OSError, subprocess.SubprocessError):
+                                duration = None
+                    if duration is None:
+                        self.events.put(('error', f'{src.name}: duração indisponível para fade-out.'))
+                        self.events.put(('progress', (index + 1) / total))
+                        continue
+                    filters.append(f'afade=t=out:st={max(0, duration - fade_seconds):g}:d={min(fade_seconds, duration):g}')
+                command += ['-af', ','.join(filters)]
             if fmt == 'MP3':
                 command += ['-codec:a', 'libmp3lame', '-b:a', f'{bitrate}k']
             elif fmt == 'WAV':
