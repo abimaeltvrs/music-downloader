@@ -1,4 +1,5 @@
 import json
+import base64
 import sys
 import tempfile
 import uuid
