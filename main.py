@@ -44,11 +44,11 @@ BASE = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'MusicDownloader'
 BASE.mkdir(parents=True, exist_ok=True)
 CONFIG = BASE / 'settings.json'
 HISTORY = BASE / 'history.json'
-BG = '#080D16'
-PANEL = '#111F32'
-ACCENT = '#1787FF'
-MUTED = '#93A6C5'
-WHITE = '#F4F7FF'
+BG = '#090F1B'
+PANEL = '#142239'
+ACCENT = '#228BFF'
+MUTED = '#A0B2CF'
+WHITE = '#F7FAFF'
 
 
 def load_json(path, fallback):
@@ -81,7 +81,7 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('DJ Tavares | Music Downloader V1.4.12 Beta')
+        self.title('DJ Tavares | Studio Pro V1.5 Beta')
         self._window_icon = None
         try:
             self.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
@@ -93,8 +93,8 @@ class App(ctk.CTk):
         except Exception:
             pass
         self.preview_path = None
-        self.geometry('1180x820')
-        self.minsize(920, 620)
+        self.geometry('1240x850')
+        self.minsize(1020, 680)
         self.configure(fg_color=BG)
         self.settings = load_json(CONFIG, {'output': str(Path.home() / 'Music')})
         self.history = load_json(HISTORY, [])
@@ -137,38 +137,81 @@ class App(ctk.CTk):
         self.after(120, self.poll_events)
 
     def build_shell(self):
-        self.sidebar = ctk.CTkFrame(self, fg_color='#101B2D', width=230, corner_radius=0)
+        """Studio Pro shell: presentation only; processing logic stays untouched."""
+        self.sidebar = ctk.CTkFrame(self, fg_color='#0D182A', width=248, corner_radius=0,
+                                    border_width=0)
         self.sidebar.pack(side='left', fill='y')
         self.sidebar.pack_propagate(False)
         self.nav_buttons = {}
         self.brand_image = None
+
+        brand = ctk.CTkFrame(self.sidebar, fg_color='#101F34', corner_radius=14)
+        brand.pack(fill='x', padx=14, pady=(18, 22))
         try:
             from PIL import Image as PILImage
-            self.brand_image = ctk.CTkImage(light_image=PILImage.open(_BUNDLE / 'assets' / 'dj_tavares_banner.png'), dark_image=PILImage.open(_BUNDLE / 'assets' / 'dj_tavares_banner.png'), size=(185, 125))
-            ctk.CTkLabel(self.sidebar, text='', image=self.brand_image).pack(anchor='w', padx=14, pady=(12, 0))
+            banner = PILImage.open(_BUNDLE / 'assets' / 'dj_tavares_banner.png')
+            self.brand_image = ctk.CTkImage(light_image=banner, dark_image=banner, size=(184, 108))
+            ctk.CTkLabel(brand, text='', image=self.brand_image).pack(padx=10, pady=(10, 0))
         except Exception:
-            ctk.CTkLabel(self.sidebar, text='DJ TAVARES', font=('Segoe UI', 24, 'bold'), text_color=WHITE).pack(anchor='w', padx=20, pady=(28, 0))
-        ctk.CTkLabel(self.sidebar, text='STUDIO PRO  •  V1.4.6 BETA', font=('Segoe UI', 10), text_color=MUTED).pack(anchor='w', padx=20, pady=(0, 20))
-        for name, symbol in [('Conversor', '♫'), ('Studio DJ', '◈'), ('Links', '⇩'), ('Biblioteca', '▣'), ('Histórico', '◷'), ('Configurações', '⚙')]:
-            button = ctk.CTkButton(self.sidebar, text=f'{symbol}    {name}', height=45, corner_radius=10, anchor='w', font=('Segoe UI', 13, 'bold'), fg_color='transparent', hover_color='#223754', command=lambda n=name: self.show_page(n))
-            button.pack(fill='x', padx=12, pady=3)
+            ctk.CTkLabel(brand, text='DJ TAVARES', font=('Segoe UI', 24, 'bold'),
+                         text_color=WHITE).pack(padx=12, pady=(22, 12))
+        ctk.CTkLabel(brand, text='MUSIC DOWNLOADER', font=('Segoe UI', 10, 'bold'),
+                     text_color='#8DAED7').pack(pady=(0, 2))
+        ctk.CTkLabel(brand, text='STUDIO PRO  /  V1.5 BETA', font=('Segoe UI', 10),
+                     text_color=MUTED).pack(pady=(0, 14))
+
+        ctk.CTkLabel(self.sidebar, text='  WORKSPACE', font=('Segoe UI', 10, 'bold'),
+                     text_color='#6F89AA').pack(anchor='w', padx=22, pady=(0, 9))
+        navigation = [
+            ('Conversor', '♫'),
+            ('Studio DJ', '◈'),
+            ('Links', '↓'),
+            ('Biblioteca', '▣'),
+            ('Histórico', '◷'),
+            ('Configurações', '⚙'),
+        ]
+        for name, symbol in navigation:
+            button = ctk.CTkButton(
+                self.sidebar, text=f'  {symbol}     {name}', height=46,
+                corner_radius=11, anchor='w', font=('Segoe UI', 13, 'bold'),
+                fg_color='transparent', text_color='#C9D8EF',
+                hover_color='#1E3553', border_spacing=8,
+                command=lambda n=name: self.show_page(n))
+            button.pack(fill='x', padx=13, pady=3)
             self.nav_buttons[name] = button
-        ctk.CTkLabel(self.sidebar, text='WINDOWS DESKTOP', text_color=MUTED, font=('Segoe UI', 10)).pack(side='bottom', pady=24)
+
+        footer = ctk.CTkFrame(self.sidebar, fg_color='#101F34', corner_radius=12)
+        footer.pack(side='bottom', fill='x', padx=14, pady=18)
+        ctk.CTkLabel(footer, text='●  STUDIO READY', text_color='#58D9B0',
+                     font=('Segoe UI', 10, 'bold')).pack(anchor='w', padx=14, pady=(12, 2))
+        ctk.CTkLabel(footer, text='Windows desktop  •  DJ Tavares',
+                     text_color=MUTED, font=('Segoe UI', 10)).pack(anchor='w', padx=14, pady=(0, 12))
+
         self.content = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        self.content.pack(side='left', fill='both', expand=True, padx=24, pady=18)
+        self.content.pack(side='left', fill='both', expand=True, padx=28, pady=22)
 
     def clear(self):
         for child in self.content.winfo_children():
             child.destroy()
 
     def header(self, title, subtitle):
-        ctk.CTkLabel(self.content, text=title, font=('Segoe UI', 27, 'bold'), text_color=WHITE).pack(anchor='w')
-        ctk.CTkLabel(self.content, text=subtitle, font=('Segoe UI', 13), text_color=MUTED).pack(anchor='w', pady=(2, 15))
+        top = ctk.CTkFrame(self.content, fg_color='transparent')
+        top.pack(fill='x', pady=(0, 16))
+        ctk.CTkLabel(top, text='DJ TAVARES  /  STUDIO PRO',
+                     font=('Segoe UI', 10, 'bold'), text_color='#65AAFF').pack(anchor='w')
+        ctk.CTkLabel(top, text=title, font=('Segoe UI', 29, 'bold'),
+                     text_color=WHITE).pack(anchor='w', pady=(5, 0))
+        ctk.CTkLabel(top, text=subtitle, font=('Segoe UI', 12),
+                     text_color=MUTED).pack(anchor='w', pady=(4, 13))
+        ctk.CTkFrame(top, height=2, fg_color='#203854', corner_radius=0).pack(fill='x')
 
     def show_page(self, page):
         self.page = page
         for nav_name, button in self.nav_buttons.items():
-            button.configure(fg_color=ACCENT if nav_name == page else 'transparent')
+            button.configure(fg_color='#1C4E86' if nav_name == page else 'transparent',
+                             text_color=WHITE if nav_name == page else '#C9D8EF',
+                             border_width=1 if nav_name == page else 0,
+                             border_color='#368EFF')
         self.clear()
         if page == 'Conversor':
             self.header('Converter áudio', 'Transforme arquivos locais em áudio pronto para sua biblioteca.')
@@ -253,7 +296,7 @@ class App(ctk.CTk):
             ctk.CTkLabel(self.content, text='Requer Demucs e FFmpeg. A primeira execução pode baixar o modelo de IA. O processamento pode levar vários minutos.', text_color=MUTED, wraplength=680).pack(anchor='w', pady=(16, 0))
         elif page == 'Links':
             self.header('Download por link', 'Somente videos proprios ou com download autorizado pela plataforma.')
-            panel = ctk.CTkScrollableFrame(self.content, fg_color=PANEL, corner_radius=16, border_width=1, border_color='#263B59')
+            panel = ctk.CTkScrollableFrame(self.content, fg_color=PANEL, corner_radius=16, border_width=1, border_color='#2D4668')
             panel.pack(fill='both', expand=True, pady=(4, 8))
             ctk.CTkLabel(panel, text='URL do video', text_color=WHITE).pack(anchor='w', padx=20, pady=(20, 8))
             ctk.CTkEntry(panel, textvariable=self.url_var, height=42, placeholder_text='https://www.youtube.com/watch?v=...').pack(fill='x', padx=20)
@@ -1434,7 +1477,7 @@ class App(ctk.CTk):
         if not items:
             ctk.CTkLabel(panel, text='Nenhuma conversão registrada.', text_color=MUTED).pack(pady=35)
         for record in items:
-            row = ctk.CTkFrame(panel, fg_color='#1C2A40', corner_radius=10)
+            row = ctk.CTkFrame(panel, fg_color='#1A2C46', corner_radius=10)
             row.pack(fill='x', padx=10, pady=5)
             path = Path(record['output'])
             ctk.CTkLabel(row, text=path.name, font=('Segoe UI', 13, 'bold'), text_color=WHITE, anchor='w').pack(fill='x', padx=15, pady=(9, 0))
