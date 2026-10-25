@@ -8,6 +8,9 @@ import shutil
 import subprocess
 import threading
 import atexit
+import webbrowser
+import urllib.parse
+import urllib.request
 import math
 import struct
 from datetime import datetime
@@ -77,7 +80,7 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('DJ Tavares | Music Downloader V1.4.2 Beta')
+        self.title('DJ Tavares | Music Downloader V1.4.4 Beta')
         self._window_icon = None
         try:
             self.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
@@ -115,6 +118,8 @@ class App(ctk.CTk):
         self.queue_pause.set()
         self.link_format = tk.StringVar(value='MP3')
         self.link_playlist = tk.BooleanVar(value=False)
+        self.playlist_save_mode = tk.StringVar(value=self.settings.get('playlist_save_mode', 'subfolder'))
+        self.playlist_folder_name = tk.StringVar(value=self.settings.get('playlist_folder_name', ''))
         self.link_audio_quality = tk.StringVar(value='320')
         self.link_video_quality = tk.StringVar(value='1080p')
         self.stem_quality = tk.StringVar(value='Rápido')
@@ -138,7 +143,7 @@ class App(ctk.CTk):
             ctk.CTkLabel(self.sidebar, text='', image=self.brand_image).pack(anchor='w', padx=14, pady=(12, 0))
         except Exception:
             ctk.CTkLabel(self.sidebar, text='DJ TAVARES', font=('Segoe UI', 24, 'bold'), text_color=WHITE).pack(anchor='w', padx=20, pady=(28, 0))
-        ctk.CTkLabel(self.sidebar, text='STUDIO PRO  •  V1.4.2 BETA', font=('Segoe UI', 10), text_color=MUTED).pack(anchor='w', padx=20, pady=(0, 20))
+        ctk.CTkLabel(self.sidebar, text='STUDIO PRO  •  V1.4.4 BETA', font=('Segoe UI', 10), text_color=MUTED).pack(anchor='w', padx=20, pady=(0, 20))
         for name, symbol in [('Conversor', '♫'), ('Studio DJ', '▥'), ('Links', '↓'), ('Biblioteca', '▤'), ('Histórico', '◷'), ('Configurações', '⚙')]:
             button = ctk.CTkButton(self.sidebar, text=f'{symbol}    {name}', height=45, corner_radius=10, anchor='w', font=('Segoe UI', 13, 'bold'), fg_color='transparent', hover_color='#223754', command=lambda n=name: self.show_page(n))
             button.pack(fill='x', padx=12, pady=4)
@@ -263,8 +268,13 @@ class App(ctk.CTk):
             ctk.CTkOptionMenu(panel, values=['128', '192', '256', '320'], variable=self.link_audio_quality, width=190).pack(anchor='w', padx=20)
             ctk.CTkLabel(panel, text='Resolução MP4 (máximo disponível)', text_color=WHITE).pack(anchor='w', padx=20, pady=(12, 4))
             ctk.CTkOptionMenu(panel, values=['360p', '480p', '720p', '1080p', 'Melhor disponível'], variable=self.link_video_quality, width=220).pack(anchor='w', padx=20)
-            ctk.CTkLabel(panel, text='Spotify: identifica a música, mas não extrai áudio protegido. Links diretos Spotify são informativos.', text_color=MUTED, wraplength=700).pack(anchor='w', padx=20, pady=(10, 0))
+            ctk.CTkLabel(panel, text='Spotify: identifica faixa e oferece pesquisa em lojas de música. Não extrai áudio protegido.', text_color=MUTED, wraplength=700).pack(anchor='w', padx=20, pady=(10, 0))
             ctk.CTkCheckBox(panel, text='Baixar playlist inteira (quando permitido)', variable=self.link_playlist, fg_color=ACCENT).pack(anchor='w', padx=20, pady=(12, 0))
+            ctk.CTkLabel(panel, text='Organização dos downloads', text_color=WHITE, font=('Segoe UI', 13, 'bold')).pack(anchor='w', padx=20, pady=(15, 5))
+            ctk.CTkRadioButton(panel, text='Salvar diretamente na pasta selecionada', variable=self.playlist_save_mode, value='direct').pack(anchor='w', padx=20, pady=3)
+            ctk.CTkRadioButton(panel, text='Criar subpasta para a playlist', variable=self.playlist_save_mode, value='subfolder').pack(anchor='w', padx=20, pady=3)
+            ctk.CTkLabel(panel, text='Nome da subpasta (vazio = título da playlist)' , text_color=MUTED).pack(anchor='w', padx=20, pady=(7, 3))
+            ctk.CTkEntry(panel, textvariable=self.playlist_folder_name, placeholder_text='Funk 2026').pack(fill='x', padx=20)
             ctk.CTkLabel(panel, text='Pasta de destino', text_color=WHITE).pack(anchor='w', padx=20, pady=(15, 8))
             ctk.CTkEntry(panel, textvariable=self.output_var).pack(fill='x', padx=20)
             ctk.CTkButton(panel, text='Escolher pasta', command=self.pick_output).pack(anchor='w', padx=20, pady=12)
@@ -333,7 +343,7 @@ class App(ctk.CTk):
                 continue
             self.download_queue.append({'url': url, 'format': self.link_format.get(),
                 'bitrate': self.link_audio_quality.get(), 'resolution': self.link_video_quality.get(),
-                'playlist': self.link_playlist.get()})
+                'playlist': self.link_playlist.get(), 'save_mode': self.playlist_save_mode.get(), 'subfolder': self.playlist_folder_name.get()})
             seen.add(url)
             added += 1
         self.multi_links.delete('1.0', 'end')
@@ -383,9 +393,9 @@ class App(ctk.CTk):
             item = self.download_queue[self.queue_index]
             self.events.put(('status', f"Fila {self.queue_index+1}/{len(self.download_queue)}: {item['url']}"))
             if 'open.spotify.com/' in item['url'].lower():
-                self.events.put(('status', 'Link Spotify identificado: não há extração de áudio protegido.'))
+                self.events.put(('status', 'Link Spotify: abra individualmente para identificar a faixa e buscar uma loja autorizada.'))
             else:
-                self.link_worker(item['url'], folder, item['format'], item['playlist'], item['bitrate'], item['resolution'], queue_item=True)
+                self.link_worker(item['url'], folder, item['format'], item['playlist'], item['bitrate'], item['resolution'], queue_item=True, save_mode=item.get('save_mode'), subfolder=item.get('subfolder'))
             self.queue_index += 1
             self.events.put(('queue_progress', self.queue_index / max(len(self.download_queue), 1)))
         self.events.put(('queue_finished', None))
@@ -450,28 +460,54 @@ class App(ctk.CTk):
         threading.Thread(target=self.link_worker, args=(url, folder, self.link_format.get(), self.link_playlist.get(), self.link_audio_quality.get(), self.link_video_quality.get()), daemon=True).start()
 
     def lookup_spotify(self, url):
-        """Display Spotify metadata; Spotify audio cannot be downloaded by this app."""
+        """Spotify metadata only; offer an authorized storefront search, never DRM extraction."""
         def work():
             try:
-                import urllib.parse, urllib.request
                 endpoint = 'https://open.spotify.com/oembed?url=' + urllib.parse.quote(url, safe='')
-                req = urllib.request.Request(endpoint, headers={'User-Agent': 'DJTavares/1.4.2'})
-                with urllib.request.urlopen(req, timeout=12) as response:
+                req = urllib.request.Request(endpoint, headers={'User-Agent': 'DJTavares/1.4.4'})
+                with urllib.request.urlopen(req, timeout=15) as response:
                     data = json.load(response)
-                title = data.get('title', 'Música não identificada')
-                artist = data.get('author_name', '')
-                self.after(0, lambda: messagebox.showinfo('Spotify — música identificada',
-                    f'{title}\n{artist}\n\nO Spotify não permite baixar seu áudio protegido em MP3 por esta integração.\nUse um arquivo local ou uma fonte que autorize o download.'))
+                title = data.get('title') or 'Faixa não identificada'
+                artist = data.get('author_name') or ''
+                def display():
+                    query = ' '.join(x for x in (artist, title) if x)
+                    if messagebox.askyesno('Spotify — faixa identificada',
+                        f'{title}\n{artist}\n\nO Spotify não disponibiliza o MP3 protegido para download externo.\n\nPesquisar essa música na loja Bandcamp, onde artistas podem disponibilizar downloads autorizados?'):
+                        webbrowser.open('https://bandcamp.com/search?q=' + urllib.parse.quote(query))
+                    self.status_var.set('Spotify identificado. Download somente quando oferecido pela fonte autorizada.')
+                self.after(0, display)
             except Exception as exc:
                 self.after(0, lambda msg=str(exc): messagebox.showerror('Spotify', 'Não foi possível identificar o link: ' + msg))
         threading.Thread(target=work, daemon=True).start()
 
-    def link_worker(self, url, folder, fmt, playlist, bitrate='320', resolution='1080p', queue_item=False):
+    def link_worker(self, url, folder, fmt, playlist, bitrate='320', resolution='1080p', queue_item=False, save_mode=None, subfolder=None):
         """Record completed files, including individual items from playlists."""
         try:
             import yt_dlp
             ffmpeg_path = shutil.which('ffmpeg')
             finished = {}
+            save_mode = save_mode or self.playlist_save_mode.get()
+            subfolder = self.playlist_folder_name.get() if subfolder is None else subfolder
+            # Persist user preference for the next session.
+            self.settings['playlist_save_mode'] = save_mode
+            self.settings['playlist_folder_name'] = subfolder
+            save_json(CONFIG, self.settings)
+            folder = Path(folder).expanduser().resolve()
+            # Never permit traversal outside the selected parent directory.
+            def safe_folder(label):
+                label = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', str(label)).strip(' .')[:100]
+                return label if label and label not in ('.', '..') else 'Playlist'
+            if playlist and save_mode == 'subfolder':
+                label = subfolder.strip() if subfolder else ''
+                if not label:
+                    # Obtain playlist metadata before downloading, so folder uses real title.
+                    with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True, 'extract_flat': True, 'skip_download': True, 'noplaylist': False}) as probe:
+                        metadata = probe.extract_info(url, download=False)
+                    label = (metadata or {}).get('title') or (metadata or {}).get('playlist_title') or 'Playlist'
+                folder = folder / safe_folder(label)
+            folder.mkdir(parents=True, exist_ok=True)
+            prior_files = {str(x.resolve()): x.stat().st_mtime_ns for x in folder.iterdir() if x.is_file()}
+            self.events.put(('status', f'Pasta de destino: {folder}'))
 
             def remember(info):
                 if not isinstance(info, dict):
@@ -521,6 +557,7 @@ class App(ctk.CTk):
                         guessed = Path(ydl.prepare_filename(item)).with_suffix('.' + fmt.lower())
                         finished[ident or str(guessed)] = (item, str(guessed))
             count = 0
+            registered = set()
             for item, filename in finished.values():
                 output = Path(filename)
                 if fmt != 'MP4':
@@ -529,12 +566,28 @@ class App(ctk.CTk):
                     output = output.with_suffix('.mp4')
                 if not output.is_file():
                     continue
+                key = str(output.resolve())
+                if key in prior_files and prior_files[key] == output.stat().st_mtime_ns:
+                    continue
+                registered.add(str(output.resolve()))
                 self.events.put(('success', {
                     'source': item.get('webpage_url') or url,
                     'output': str(output), 'format': fmt + ' • Link',
                     'date': datetime.now().strftime('%d/%m/%Y %H:%M'),
                     'cut': None,
                 }))
+                count += 1
+            # Some yt-dlp postprocessors report pre-conversion filenames.
+            # Discover only real finished files in this download directory.
+            for output in sorted(folder.glob('*')):
+                if not output.is_file() or output.suffix.lower() != '.' + fmt.lower():
+                    continue
+                key = str(output.resolve())
+                if key in registered or (key in prior_files and prior_files[key] == output.stat().st_mtime_ns):
+                    continue
+                registered.add(key)
+                self.events.put(('success', {'source': url, 'output': key,
+                    'format': fmt + ' • Link', 'date': datetime.now().strftime('%d/%m/%Y %H:%M'), 'cut': None}))
                 count += 1
             if count == 0:
                 raise RuntimeError('Download finalizado, mas não foi possível localizar os arquivos para registrar. Confira a pasta de destino.')
