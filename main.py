@@ -239,10 +239,20 @@ class App(ctk.CTk):
             ctk.CTkEntry(times, textvariable=self.trim_start, width=92, height=36).pack(side='left', padx=(0, 14))
             ctk.CTkLabel(times, text='Fim').pack(side='left', padx=(0, 6))
             ctk.CTkEntry(times, textvariable=self.trim_end, width=92, height=36).pack(side='left')
-            actions = ctk.CTkFrame(cut, fg_color='transparent')
-            actions.pack(fill='x', padx=19, pady=(0, 13))
-            ctk.CTkButton(actions, text='Editor visual', command=self.open_waveform_editor, fg_color=ACCENT, height=38).pack(side='left', padx=(0, 8))
-            ctk.CTkButton(actions, text='Ouvir prévia', command=self.preview_cut, fg_color='#2C4564', height=38).pack(side='left')
+            # Timeline/preview entry point restored and made prominent. Original editor logic untouched.
+            timeline = ctk.CTkFrame(cut, fg_color='#0D1B2D', corner_radius=12,
+                                    border_width=1, border_color='#31577C')
+            timeline.pack(fill='x', padx=19, pady=(0, 13))
+            ctk.CTkLabel(timeline, text='LINHA DO TEMPO  •  EDITOR COMPLETO',
+                         font=('Segoe UI', 12, 'bold'), text_color='#7DBBFF').pack(anchor='w', padx=15, pady=(12, 3))
+            ctk.CTkLabel(timeline, text='Forma de onda, selecao de trecho, zoom, cursor e reproducao.',
+                         font=('Segoe UI', 11), text_color=MUTED).pack(anchor='w', padx=15, pady=(0, 10))
+            actions = ctk.CTkFrame(timeline, fg_color='transparent')
+            actions.pack(fill='x', padx=14, pady=(0, 13))
+            ctk.CTkButton(actions, text='ABRIR LINHA DO TEMPO', command=self.open_waveform_editor,
+                          fg_color=ACCENT, height=43, font=('Segoe UI', 12, 'bold')).pack(side='left', fill='x', expand=True, padx=(0, 8))
+            ctk.CTkButton(actions, text='OUVIR PREVIA', command=self.preview_cut,
+                          fg_color='#2C4564', height=43, font=('Segoe UI', 12, 'bold')).pack(side='left', fill='x', expand=True)
             fades = ctk.CTkFrame(cut, fg_color='transparent')
             fades.pack(fill='x', padx=19, pady=(0, 10))
             ctk.CTkCheckBox(fades, text='Fade-in', variable=self.fade_in_var, width=90).pack(side='left')
@@ -296,7 +306,14 @@ class App(ctk.CTk):
             ctk.CTkEntry(times, textvariable=self.trim_start, width=100).pack(side='left', padx=(0, 16))
             ctk.CTkLabel(times, text='Fim').pack(side='left', padx=(0, 6))
             ctk.CTkEntry(times, textvariable=self.trim_end, width=100).pack(side='left')
-            ctk.CTkButton(extraction, text='Abrir editor visual', command=self.open_waveform_editor, height=40, fg_color='#2B5D94').pack(fill='x', padx=19, pady=(0, 18))
+            ctk.CTkLabel(extraction, text='LINHA DO TEMPO E PREVIA',
+                         text_color='#7DBBFF', font=('Segoe UI', 12, 'bold')).pack(anchor='w', padx=19, pady=(0, 7))
+            stem_editor_actions = ctk.CTkFrame(extraction, fg_color='transparent')
+            stem_editor_actions.pack(fill='x', padx=19, pady=(0, 18))
+            ctk.CTkButton(stem_editor_actions, text='ABRIR EDITOR COMPLETO', command=self.open_waveform_editor,
+                          height=43, fg_color=ACCENT, font=('Segoe UI', 12, 'bold')).pack(side='left', fill='x', expand=True, padx=(0, 8))
+            ctk.CTkButton(stem_editor_actions, text='OUVIR PREVIA', command=self.preview_cut,
+                          height=43, fg_color='#2C4564').pack(side='left', fill='x', expand=True)
             quality = self.studio_card(right, 'CONFIGURAÇÕES DE SAÍDA', 'Formato e qualidade do processamento')
             quality.pack(fill='x', pady=(0, 16))
             ctk.CTkLabel(quality, text='Formato', text_color=MUTED).pack(anchor='w', padx=19, pady=(9, 5))
@@ -998,17 +1015,17 @@ class App(ctk.CTk):
             return
         src = self.files[0]
         win = ctk.CTkToplevel(self)
-        win.title('DJ Tavares | Editor visual')
+        win.title('DJ Tavares | Linha do tempo e editor visual')
         try:
             win.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
         except Exception:
             pass
-        win.geometry('980x570')
+        win.geometry('1060x640')
         win.configure(fg_color=BG)
         win.transient(self)
-        ctk.CTkLabel(win, text='Editor visual • ' + src.name, font=('Segoe UI', 18, 'bold')).pack(padx=20, pady=(18, 4), anchor='w')
+        ctk.CTkLabel(win, text='LINHA DO TEMPO  |  ' + src.name, font=('Segoe UI', 18, 'bold')).pack(padx=20, pady=(18, 4), anchor='w')
         ctk.CTkLabel(win, text='Clique e arraste na onda para marcar o trecho. O corte será aplicado na conversão.', text_color=MUTED).pack(padx=20, anchor='w')
-        canvas = tk.Canvas(win, height=190, bg='#111D30', highlightthickness=0, cursor='crosshair')
+        canvas = tk.Canvas(win, height=235, bg='#111D30', highlightthickness=0, cursor='crosshair')
         canvas.pack(fill='x', padx=20, pady=(20, 10))
         info = ctk.CTkLabel(win, text='Carregando forma de onda...', text_color=MUTED)
         info.pack(pady=5)
