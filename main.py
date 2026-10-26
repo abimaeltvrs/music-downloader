@@ -86,7 +86,7 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('TavaresMusic | Studio Pro V1.6.1 Beta')
+        self.title('TavaresMusic | Studio Pro V1.6.2 Beta')
         # Um AppUserModelID próprio impede o agrupamento com o ícone genérico
         # do Python/Tk no Windows e permite a identidade do aplicativo na taskbar.
         if sys.platform == 'win32':
@@ -140,6 +140,12 @@ class App(ctk.CTk):
         self.fade_out_var = tk.BooleanVar(value=False)
         self.fade_duration_var = tk.StringVar(value='3')
         self.status_var = tk.StringVar(value='Pronto para converter arquivos autorizados.')
+        self.player = None
+        self.player_path = None
+        self.player_paused = False
+        self.player_duration = 0.0
+        self.player_started = 0.0
+        self.player_offset = 0.0
         self.dj_store = PlaylistStore(BASE / 'dj_playlists.json')
         self.dj_tracks = []
         self.dj_name = tk.StringVar(value='Meu Set')
@@ -148,6 +154,8 @@ class App(ctk.CTk):
         self.dj_progress = tk.DoubleVar(value=0)
         self.build_shell()
         self.show_page('Conversor')
+        if self.page == 'Links':
+            self.update_download_controls()
         self.after(120, self.poll_events)
 
     def _apply_window_icon(self):
@@ -463,29 +471,24 @@ class App(ctk.CTk):
             ctk.CTkLabel(panel, text='Pasta de destino', text_color=WHITE).pack(anchor='w', padx=20, pady=(15, 8))
             ctk.CTkEntry(panel, textvariable=self.output_var).pack(fill='x', padx=20)
             ctk.CTkButton(panel, text='Escolher pasta', command=self.pick_output).pack(anchor='w', padx=20, pady=12)
-            self.link_button = ctk.CTkButton(panel, text='BAIXAR CONTEUDO AUTORIZADO', height=45, command=self.start_link_download)
-            self.link_button.pack(fill='x', padx=20, pady=(5, 6))
-            rowq = ctk.CTkFrame(panel, fg_color='transparent')
-            rowq.pack(fill='x', padx=20, pady=(0, 6))
-            ctk.CTkButton(rowq, text='▶ Iniciar fila', command=self.start_download_queue, fg_color=ACCENT).pack(side='left', padx=(0, 8))
-            ctk.CTkButton(rowq, text='Pausar / Retomar', command=self.toggle_download_queue, fg_color='#344B6D').pack(side='left', padx=(0, 8))
-            ctk.CTkButton(rowq, text='Cancelar após item atual', command=self.cancel_download_queue, fg_color='#6B3440').pack(side='left')
-            ctk.CTkLabel(panel, text='CONTROLE DE PLAYLIST', font=('Segoe UI', 12, 'bold'), text_color='#64B5FF').pack(anchor='w', padx=20, pady=(6, 4))
+            ctk.CTkLabel(panel, text='CONTROLE DE DOWNLOADS', font=('Segoe UI', 12, 'bold'), text_color='#64B5FF').pack(anchor='w', padx=20, pady=(12, 5))
             transport = ctk.CTkFrame(panel, fg_color='transparent')
-            transport.pack(fill='x', padx=20, pady=(0, 8))
-            self.pause_transfer_button = ctk.CTkButton(transport, text='Ⅱ  Pausar playlist', width=155, fg_color='#2B4768', hover_color='#385C82', command=self.toggle_transfer_pause)
+            transport.pack(fill='x', padx=20, pady=(0, 9))
+            self.link_button = ctk.CTkButton(transport, text='▶  Iniciar download', height=43, fg_color=ACCENT, command=self.start_unified_download)
+            self.link_button.pack(side='left', fill='x', expand=True, padx=(0, 8))
+            self.pause_transfer_button = ctk.CTkButton(transport, text='Ⅱ  Pausar', width=115, height=43, state='disabled', fg_color='#2B4768', command=self.toggle_unified_pause)
             self.pause_transfer_button.pack(side='left', padx=(0, 8))
-            self.cancel_transfer_button = ctk.CTkButton(transport, text='■  Parar playlist', width=205, fg_color='#8B3448', hover_color='#A84055', command=self.cancel_transfer)
+            self.cancel_transfer_button = ctk.CTkButton(transport, text='■  Parar', width=110, height=43, state='disabled', fg_color='#8B3448', command=self.cancel_transfer)
             self.cancel_transfer_button.pack(side='left')
+            ctk.CTkLabel(panel, text='Se houver links na fila, Iniciar download processa a fila. Caso contrário, usa o link informado acima.', text_color=MUTED, wraplength=690, justify='left').pack(anchor='w', padx=20, pady=(0, 8))
             self.transfer_progress = ctk.CTkProgressBar(panel, progress_color='#27A8FF')
             self.transfer_progress.pack(fill='x', padx=20, pady=(3, 8))
             self.transfer_progress.set(0)
             self.transfer_detail = ctk.CTkLabel(panel, text='Nenhum download de playlist em andamento.', text_color=MUTED, anchor='w')
             self.transfer_detail.pack(fill='x', padx=20, pady=(0, 10))
-            self.queue_progress = ctk.CTkProgressBar(panel, progress_color=ACCENT)
-            self.queue_progress.pack(fill='x', padx=20, pady=(4, 4))
-            self.queue_progress.set(0)
+            self.queue_progress = self.transfer_progress
             ctk.CTkLabel(panel, textvariable=self.status_var, text_color=MUTED, wraplength=690).pack(anchor='w', padx=20, pady=10)
+            self.update_download_controls()
             ctk.CTkLabel(panel, text='Vídeos privados ou indisponíveis serão ignorados. O relatório distingue falhas de itens ainda não tentados.', text_color=MUTED, wraplength=690).pack(anchor='w', padx=20, pady=(0, 12))
         elif page == 'DJ Playlist':
             self.build_dj_playlist()
@@ -498,8 +501,9 @@ class App(ctk.CTk):
             activity = tabs.add('Histórico')
             ctk.CTkLabel(music, text='Arquivos dos processos recentes', text_color=WHITE,
                          font=('Segoe UI', 14, 'bold')).pack(anchor='w', padx=12, pady=(12, 4))
-            ctk.CTkLabel(music, text='Abra a localização do arquivo para reproduzi-lo no seu player. O player integrado será entregue na próxima etapa.',
+            ctk.CTkLabel(music, text='Selecione uma música para ouvir aqui ou abrir sua localização no Explorador de Arquivos.',
                          text_color=MUTED, wraplength=750, justify='left').pack(anchor='w', padx=12, pady=(0, 10))
+            self.build_library_player(music)
             self.records(self.history[:80], show_open=True, parent=music)
             actions = ctk.CTkFrame(activity, fg_color='transparent')
             actions.pack(fill='x', padx=12, pady=10)
@@ -510,7 +514,7 @@ class App(ctk.CTk):
             self.records(self.history, show_open=False, parent=activity)
         else:
             self.header('Configurações', 'Informações e diagnóstico do aplicativo.')
-            ctk.CTkLabel(self.content, text='TavaresMusic Studio Pro · V1.6.1 Beta',
+            ctk.CTkLabel(self.content, text='TavaresMusic Studio Pro · V1.6.2 Beta',
                          text_color=WHITE, font=('Segoe UI', 16, 'bold')).pack(anchor='w', pady=(0, 14))
             for name, executable in [('FFmpeg', 'ffmpeg'), ('yt-dlp', 'yt-dlp')]:
                 available = shutil.which(executable) is not None
@@ -1899,6 +1903,8 @@ class App(ctk.CTk):
                     self.refresh_download_queue()
                     self.status_var.set('Fila interrompida.' if self.queue_cancelled else 'Fila finalizada. Consulte o Histórico e a Biblioteca.')
                 elif kind == 'done':
+                    if self.queue_active:
+                        continue
                     self.busy = False
                     if not self.had_error and not self.transfer_cancel.is_set() and self.page != 'Links':
                         self.status_var.set('Processamento concluído. Consulte a Biblioteca e o Histórico.')
@@ -1914,6 +1920,8 @@ class App(ctk.CTk):
                             self.cancel_transfer_button.configure(state='normal', text='■  Parar playlist')
         except queue.Empty:
             pass
+        if self.page == 'Links':
+            self.update_download_controls()
         self.after(120, self.poll_events)
 
     def records(self, items, show_open, parent=None):
@@ -1928,13 +1936,146 @@ class App(ctk.CTk):
             ctk.CTkLabel(row, text=path.name, font=('Segoe UI', 13, 'bold'), text_color=WHITE, anchor='w').pack(fill='x', padx=15, pady=(9, 0))
             ctk.CTkLabel(row, text=f"{record['date']}  •  {record['format']}", text_color=MUTED, anchor='w').pack(fill='x', padx=15, pady=(0, 7))
             if show_open:
-                ctk.CTkButton(row, text='Abrir arquivo', width=110, fg_color=ACCENT, command=lambda p=path: self.open_file(p)).pack(anchor='e', padx=12, pady=(0, 9))
+                actions = ctk.CTkFrame(row, fg_color='transparent')
+                actions.pack(anchor='e', padx=12, pady=(0, 9))
+                ctk.CTkButton(actions, text='▶ Ouvir', width=85, fg_color='#29435F', command=lambda p=path: self.play_library_file(p)).pack(side='left', padx=(0, 7))
+                ctk.CTkButton(actions, text='Abrir local', width=115, fg_color=ACCENT, command=lambda p=path: self.open_file(p)).pack(side='left')
 
     def open_file(self, path):
-        if path.exists():
-            os.startfile(path)
-        else:
+        path = Path(path)
+        if not path.is_file():
             messagebox.showwarning('Arquivo não encontrado', 'O arquivo foi movido ou excluído.')
+            return
+        try:
+            if sys.platform == 'win32':
+                subprocess.Popen(['explorer.exe', '/select,', str(path)])
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', '-R', str(path)])
+            else:
+                subprocess.Popen(['xdg-open', str(path.parent)])
+        except OSError as exc:
+            messagebox.showerror('Abrir local', str(exc))
+
+    def start_unified_download(self):
+        if self.busy or self.queue_active:
+            return
+        if self.download_queue or self.multi_links.get('1.0', 'end').strip():
+            self.start_download_queue()
+        else:
+            self.start_link_download()
+        self.update_download_controls()
+
+    def toggle_unified_pause(self):
+        if not self.busy and not self.queue_active:
+            return
+        # Both queue and playlist use the same request; the current track finishes first.
+        if self.queue_active:
+            self.toggle_download_queue()
+        self.toggle_transfer_pause()
+        self.update_download_controls()
+
+    def update_download_controls(self):
+        if self.page != 'Links' or not hasattr(self, 'link_button') or not self.link_button.winfo_exists():
+            return
+        running = self.busy or self.queue_active
+        self.link_button.configure(state='disabled' if running else 'normal')
+        self.pause_transfer_button.configure(state='normal' if running and not self.transfer_stop_after_current.is_set() else 'disabled',
+            text='▶  Retomar' if not self.transfer_pause.is_set() or (self.queue_active and not self.queue_pause.is_set()) else 'Ⅱ  Pausar')
+        self.cancel_transfer_button.configure(state='normal' if running and not self.transfer_stop_after_current.is_set() else 'disabled',
+            text='■  Parar' if not self.transfer_stop_after_current.is_set() else 'Parando...')
+
+    def build_library_player(self, parent):
+        frame = ctk.CTkFrame(parent, fg_color='#14273E', corner_radius=12)
+        frame.pack(fill='x', padx=12, pady=(0, 12))
+        self.library_now = ctk.CTkLabel(frame, text='Nenhuma música selecionada', text_color=WHITE, anchor='w')
+        self.library_now.pack(fill='x', padx=13, pady=(10, 0))
+        self.library_slider = ctk.CTkSlider(frame, from_=0, to=100, command=self.seek_library_player)
+        self.library_slider.pack(fill='x', padx=13, pady=(7, 2))
+        self.library_slider.set(0)
+        self.library_slider.bind('<ButtonRelease-1>', self.commit_library_seek)
+        self.library_time = ctk.CTkLabel(frame, text='00:00 / 00:00', text_color=MUTED)
+        self.library_time.pack(anchor='w', padx=13)
+        bar = ctk.CTkFrame(frame, fg_color='transparent')
+        bar.pack(pady=(3, 10))
+        ctk.CTkButton(bar, text='▶ Play', width=95, command=self.resume_library_player).pack(side='left', padx=4)
+        ctk.CTkButton(bar, text='Ⅱ Pause', width=95, fg_color='#29435F', command=self.pause_library_player).pack(side='left', padx=4)
+        ctk.CTkButton(bar, text='■ Stop', width=95, fg_color='#29435F', command=self.stop_library_player).pack(side='left', padx=4)
+        self.update_library_player()
+
+    def play_library_file(self, path, offset=0):
+        path = Path(path)
+        if not path.is_file():
+            messagebox.showwarning('Arquivo não encontrado', 'O arquivo foi movido ou excluído.')
+            return
+        try:
+            import pygame
+            if not pygame.mixer.get_init():
+                pygame.mixer.init()
+            pygame.mixer.music.load(str(path))
+            pygame.mixer.music.play(start=max(0, float(offset)))
+            self.player = pygame.mixer.music
+            self.player_path = path
+            self.player_offset = float(offset)
+            self.player_started = __import__('time').monotonic()
+            self.player_paused = False
+            if offset == 0:
+                try:
+                    from mutagen import File as AudioFile
+                    audio = AudioFile(str(path))
+                    self.player_duration = float(audio.info.length) if audio and audio.info else 0
+                except Exception:
+                    self.player_duration = 0
+            if hasattr(self, 'library_now') and self.library_now.winfo_exists():
+                self.library_now.configure(text=path.name)
+        except Exception as exc:
+            messagebox.showerror('Reprodução', 'Não foi possível reproduzir o arquivo: ' + str(exc))
+
+    def resume_library_player(self):
+        if self.player_path is None:
+            messagebox.showinfo('Biblioteca', 'Escolha uma música e clique em Ouvir.')
+        elif self.player_paused:
+            self.player.unpause()
+            self.player_started = __import__('time').monotonic()
+            self.player_paused = False
+        elif self.player and not self.player.get_busy():
+            self.play_library_file(self.player_path)
+
+    def pause_library_player(self):
+        if self.player and not self.player_paused:
+            self.player_offset += __import__('time').monotonic() - self.player_started
+            self.player.pause()
+            self.player_paused = True
+
+    def stop_library_player(self):
+        if self.player:
+            self.player.stop()
+        self.player_paused = False
+        self.player_offset = 0
+        if hasattr(self, 'library_slider') and self.library_slider.winfo_exists():
+            self.library_slider.set(0)
+
+    def seek_library_player(self, value):
+        if self.player_path and self.player_duration > 0:
+            # Seeking is applied when the slider is released, to avoid restarting playback on every pixel.
+            self._seek_requested = float(value)
+
+    def commit_library_seek(self, _event=None):
+        if self.player_path and self.player_duration > 0 and self.player:
+            position = self.library_slider.get() / 100 * self.player_duration
+            was_paused = self.player_paused
+            self.play_library_file(self.player_path, position)
+            if was_paused:
+                self.pause_library_player()
+
+    def update_library_player(self):
+        if hasattr(self, 'library_slider') and self.library_slider.winfo_exists():
+            if self.player_path and self.player_duration:
+                now = self.player_offset + (0 if self.player_paused or not self.player or not self.player.get_busy() else __import__('time').monotonic() - self.player_started)
+                now = min(self.player_duration, now)
+                self.library_slider.set(now / self.player_duration * 100)
+                self.library_time.configure(text=f'{int(now//60):02d}:{int(now%60):02d} / {int(self.player_duration//60):02d}:{int(self.player_duration%60):02d}')
+            self.after(500, self.update_library_player)
+
 
 
 if __name__ == '__main__':

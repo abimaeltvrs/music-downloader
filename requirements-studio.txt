@@ -9,3 +9,6 @@ Pillow>=10,<12
 # DJ Playlist: análise BPM/tonalidade e leitura de gênero
 librosa>=0.10.2,<0.12
 mutagen>=1.47,<2
+
+# Player integrado da Biblioteca
+pygame>=2.5,<3
