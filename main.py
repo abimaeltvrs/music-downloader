@@ -85,14 +85,14 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('DJ Tavares | Studio Pro V1.5.4.3 Beta')
+        self.title('TavaresMusic | Studio Pro V1.6.0 Preview')
         # Um AppUserModelID próprio impede o agrupamento com o ícone genérico
         # do Python/Tk no Windows e permite a identidade do aplicativo na taskbar.
         if sys.platform == 'win32':
             try:
                 import ctypes
                 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-                    'DJTavares.StudioPro.Desktop.1')
+                    'TavaresMusic.StudioPro.Desktop.1')
             except Exception:
                 pass
         self._window_icon = None
@@ -174,15 +174,15 @@ class App(ctk.CTk):
         self.sidebar.pack_propagate(False)
         self.nav_buttons = {}
         brand = ctk.CTkFrame(self.sidebar, fg_color='transparent')
-        brand.pack(fill='x', padx=10, pady=(22, 26))
-        try:
-            logo = self.ui_icon('studio_logo', (188, 177))
-            ctk.CTkLabel(brand, text='', image=logo).pack()
-        except Exception as exc:
-            ctk.CTkLabel(brand, text='DJ TAVARES', font=('Segoe UI', 20, 'bold'), text_color=WHITE).pack(pady=35)
-            self.after(900, lambda e=str(exc): messagebox.showerror('Recursos visuais', e))
+        brand.pack(fill='x', padx=10, pady=(12, 8))
+        ctk.CTkLabel(brand, text='TM', font=('Segoe UI', 33, 'bold'),
+                     text_color='#59B4FF').pack(pady=(7, 0))
+        ctk.CTkLabel(brand, text='TavaresMusic', font=('Segoe UI', 17, 'bold'),
+                     text_color=WHITE).pack(pady=(0, 2))
+        ctk.CTkLabel(brand, text='STUDIO PRO', font=('Segoe UI', 10, 'bold'),
+                     text_color=MUTED).pack(pady=(0, 5))
         ctk.CTkLabel(self.sidebar, text='  FERRAMENTAS', font=('Segoe UI', 11, 'bold'), text_color='#6F95C1').pack(anchor='w', padx=18, pady=(0, 12))
-        for name, asset in [('Conversor','converter'),('Studio DJ','studio'),('Links','links'),('Biblioteca','library'),('Histórico','history'),('Configurações','settings')]:
+        for name, asset in [('Conversor','converter'),('Studio DJ','studio'),('Links','links'),('Minha Biblioteca','library'),('Configurações','settings')]:
             try:
                 ico = self.ui_icon(asset, (28,28))
             except Exception as exc:
@@ -197,7 +197,7 @@ class App(ctk.CTk):
         foot = ctk.CTkFrame(self.sidebar, fg_color='#0A2134', corner_radius=13, border_width=1, border_color='#17446B')
         foot.pack(side='bottom', fill='x', padx=12, pady=18)
         ctk.CTkLabel(foot, text='●  SISTEMA PRONTO', text_color='#35E3A2', font=('Segoe UI', 11, 'bold')).pack(anchor='w', padx=12, pady=(12, 4))
-        ctk.CTkLabel(foot, text='DJ Tavares • Studio Pro', text_color=MUTED, font=('Segoe UI', 10)).pack(anchor='w', padx=12, pady=(0, 13))
+        ctk.CTkLabel(foot, text='TavaresMusic • Studio Pro', text_color=MUTED, font=('Segoe UI', 10)).pack(anchor='w', padx=12, pady=(0, 13))
         self.content = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         self.content.pack(side='left', fill='both', expand=True, padx=16, pady=12)
         if self._visual_errors:
@@ -208,40 +208,11 @@ class App(ctk.CTk):
             child.destroy()
 
     def header(self, title, subtitle):
-        banner = ctk.CTkFrame(self.content, fg_color='#061527', corner_radius=12, border_width=1, border_color='#124E85')
-        banner.pack(fill='x', pady=(0, 13))
-        try:
-            im = Image.open(BytesIO(base64.b64decode(EMBEDDED_UI['studio_header'])))
-            # O cabeçalho acompanha a largura útil ao maximizar/restaurar a janela.
-            # A imagem original é mantida em memória para evitar distorção cumulativa.
-            self._header_source = im.convert('RGB')
-            self._header_image = ctk.CTkImage(
-                light_image=self._header_source, dark_image=self._header_source,
-                size=(max(1, self.content.winfo_width()-4), 97))
-            self._ui_images['header'] = self._header_image
-            header_label = ctk.CTkLabel(banner, text='', image=self._header_image,
-                                        height=97, fg_color='transparent')
-            header_label.pack(fill='x', expand=True, padx=1, pady=1)
-            self._header_resize_job = None
-            def _resize_header(event):
-                width = max(1, event.width - 4)
-                if self._header_resize_job is not None:
-                    try:
-                        self.after_cancel(self._header_resize_job)
-                    except Exception:
-                        pass
-                def _update():
-                    if header_label.winfo_exists():
-                        self._header_image.configure(size=(width, 97))
-                    self._header_resize_job = None
-                self._header_resize_job = self.after(70, _update)
-            banner.bind('<Configure>', _resize_header)
-        except Exception:
-            ctk.CTkLabel(banner, text='DJ TAVARES   |   STUDIO PRO', font=('Segoe UI', 20, 'bold'), text_color=WHITE).pack(pady=20)
+        """Cabeçalho Premium Clean: sem banner e sem imagem decorativa."""
         line = ctk.CTkFrame(self.content, fg_color='transparent')
-        line.pack(fill='x', pady=(0, 13))
-        ctk.CTkLabel(line, text=title, font=('Segoe UI', 26, 'bold'), text_color=WHITE).pack(anchor='w')
-        ctk.CTkLabel(line, text=subtitle, font=('Segoe UI', 12), text_color=MUTED).pack(anchor='w', pady=(2, 0))
+        line.pack(fill='x', pady=(6, 18))
+        ctk.CTkLabel(line, text=title, font=('Segoe UI', 24, 'bold'), text_color=WHITE).pack(anchor='w')
+        ctk.CTkLabel(line, text=subtitle, font=('Segoe UI', 12), text_color=MUTED).pack(anchor='w', pady=(3, 0))
 
     def studio_card(self, parent, title, subtitle=None):
         card = ctk.CTkFrame(parent, fg_color='#0C2035', corner_radius=14, border_width=1, border_color='#225079')
@@ -504,21 +475,42 @@ class App(ctk.CTk):
             self.queue_progress.set(0)
             ctk.CTkLabel(panel, textvariable=self.status_var, text_color=MUTED, wraplength=690).pack(anchor='w', padx=20, pady=10)
             ctk.CTkLabel(panel, text='Vídeos privados ou indisponíveis serão ignorados. O relatório distingue falhas de itens ainda não tentados.', text_color=MUTED, wraplength=690).pack(anchor='w', padx=20, pady=(0, 12))
-        elif page == 'Biblioteca':
-            self.header('Biblioteca musical', 'Arquivos convertidos, baixados e separados recentemente.')
-            self.record_actions('Biblioteca')
-            self.records(self.history[:40], show_open=True)
-        elif page == 'Histórico':
-            self.header('Histórico', 'Registro das conversões, downloads e separações.')
-            self.record_actions('Histórico')
-            self.records(self.history, show_open=False)
+        elif page == 'Minha Biblioteca':
+            self.header('Minha Biblioteca', 'Músicas e atividades recentes em um só lugar.')
+            tabs = ctk.CTkTabview(self.content, fg_color=PANEL, segmented_button_fg_color='#172A41',
+                                  segmented_button_selected_color=ACCENT)
+            tabs.pack(fill='both', expand=True)
+            music = tabs.add('Biblioteca')
+            activity = tabs.add('Histórico')
+            ctk.CTkLabel(music, text='Arquivos dos processos recentes', text_color=WHITE,
+                         font=('Segoe UI', 14, 'bold')).pack(anchor='w', padx=12, pady=(12, 4))
+            ctk.CTkLabel(music, text='Abra a localização do arquivo para reproduzi-lo no seu player. O player integrado será entregue na próxima etapa.',
+                         text_color=MUTED, wraplength=750, justify='left').pack(anchor='w', padx=12, pady=(0, 10))
+            self.records(self.history[:80], show_open=True, parent=music)
+            actions = ctk.CTkFrame(activity, fg_color='transparent')
+            actions.pack(fill='x', padx=12, pady=10)
+            ctk.CTkButton(actions, text='Limpar histórico', fg_color='#6B3440',
+                          command=lambda: self.clear_records('Minha Biblioteca')).pack(side='right')
+            ctk.CTkLabel(actions, text='Os arquivos salvos não serão excluídos.',
+                         text_color=MUTED).pack(side='left')
+            self.records(self.history, show_open=False, parent=activity)
         else:
-            self.header('Configurações', 'Preferências do Music Downloader.')
-            ctk.CTkLabel(self.content, text='Pasta padrão para conversões', text_color=WHITE).pack(anchor='w')
-            ctk.CTkEntry(self.content, textvariable=self.output_var, height=42).pack(fill='x', pady=10)
-            ctk.CTkButton(self.content, text='Selecionar pasta', command=self.pick_output, fg_color=ACCENT).pack(anchor='w')
-            ctk.CTkLabel(self.content, text='FFmpeg: ' + ('detectado' if shutil.which('ffmpeg') else 'não encontrado no pacote/PATH'), text_color=MUTED).pack(anchor='w', pady=30)
-            ctk.CTkLabel(self.content, text='Downloads por link disponíveis na aba Links, para conteúdos autorizados.', text_color=MUTED).pack(anchor='w')
+            self.header('Configurações', 'Informações e diagnóstico do aplicativo.')
+            ctk.CTkLabel(self.content, text='TavaresMusic Studio Pro · V1.6.0 Preview',
+                         text_color=WHITE, font=('Segoe UI', 16, 'bold')).pack(anchor='w', pady=(0, 14))
+            for name, executable in [('FFmpeg', 'ffmpeg'), ('yt-dlp', 'yt-dlp')]:
+                available = shutil.which(executable) is not None
+                ctk.CTkLabel(self.content, text=f'{name}: ' + ('Detectado' if available else 'Não localizado no PATH'),
+                             text_color='#5FD3AC' if available else MUTED).pack(anchor='w', pady=5)
+            try:
+                import importlib.util
+                demucs_ok = importlib.util.find_spec('demucs') is not None
+            except Exception:
+                demucs_ok = False
+            ctk.CTkLabel(self.content, text='Demucs: ' + ('Instalado' if demucs_ok else 'Não detectado'),
+                         text_color='#5FD3AC' if demucs_ok else MUTED).pack(anchor='w', pady=5)
+            ctk.CTkLabel(self.content, text='A pasta de destino é selecionada em cada ferramenta.',
+                         text_color=MUTED).pack(anchor='w', pady=(20, 0))
 
     def file_summary(self):
         if not self.files:
@@ -1136,7 +1128,7 @@ class App(ctk.CTk):
             return
         src = self.files[0]
         win = ctk.CTkToplevel(self)
-        win.title('DJ Tavares | Linha do tempo e editor visual')
+        win.title('TavaresMusic | Linha do tempo e editor visual')
         try:
             win.iconbitmap(str(_BUNDLE / 'assets' / 'dj_tavares.ico'))
         except Exception:
@@ -1434,7 +1426,7 @@ class App(ctk.CTk):
         state = 'Interrompida' if data.get('cancelled') else 'Concluída'
         self.status_var.set(f'Playlist {state.lower()}: {downloaded} novos; {failed} falhas; {pending} pendentes.')
         dialog = ctk.CTkToplevel(self)
-        dialog.title('Resumo da playlist - DJ Tavares')
+        dialog.title('Resumo da playlist - TavaresMusic')
         dialog.geometry('590x370')
         dialog.minsize(550, 340)
         dialog.configure(fg_color=BG)
@@ -1470,7 +1462,7 @@ class App(ctk.CTk):
 
     @staticmethod
     def write_playlist_pdf(data, mode):
-        """Create a branded, paginated DJ Tavares PDF outside the music folder."""
+        """Create a branded, paginated TavaresMusic PDF outside the music folder."""
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib import colors
@@ -1485,7 +1477,7 @@ class App(ctk.CTk):
         reports_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
         kind = 'COMPLETO' if mode == 'full' else 'SOMENTE_ERROS'
-        path = reports_dir / f'DJ_TAVARES_PLAYLIST_{kind}_{stamp}.pdf'
+        path = reports_dir / f'TAVARESMUSIC_PLAYLIST_{kind}_{stamp}.pdf'
         navy = colors.HexColor('#0B1424')
         blue = colors.HexColor('#1787FF')
         muted = colors.HexColor('#56657C')
@@ -1507,10 +1499,10 @@ class App(ctk.CTk):
         styles.add(ParagraphStyle(name='DJBannerSub', fontName='Helvetica', fontSize=9,
                                   leading=13, textColor=colors.HexColor('#B8D8FF')))
         doc = SimpleDocTemplate(str(path), pagesize=A4, rightMargin=40, leftMargin=40,
-                                topMargin=34, bottomMargin=42, title='DJ Tavares - Relatório de playlist',
-                                author='DJ Tavares Music Downloader')
+                                topMargin=34, bottomMargin=42, title='TavaresMusic - Relatório de playlist',
+                                author='TavaresMusic Music Downloader')
         status = 'INTERROMPIDA' if data.get('cancelled') else 'CONCLUÍDA'
-        header = Table([[Paragraph('DJ TAVARES', styles['DJBanner'])],
+        header = Table([[Paragraph('TavaresMusic', styles['DJBanner'])],
                         [Paragraph('MUSIC DOWNLOADER  /  RELATÓRIO DE PLAYLIST', styles['DJBannerSub'])]],
                        colWidths=[A4[0] - 80], rowHeights=[31, 20])
         header.setStyle(TableStyle([('BACKGROUND', (0,0),(-1,-1),navy),
@@ -1572,7 +1564,7 @@ class App(ctk.CTk):
             canvas.line(40, 31, w-40, 31)
             canvas.setFillColor(muted)
             canvas.setFont('Helvetica', 8)
-            canvas.drawString(40, 19, 'DJ TAVARES  |  Music Downloader  |  Relatório informativo')
+            canvas.drawString(40, 19, 'TavaresMusic  |  Music Downloader  |  Relatório informativo')
             canvas.drawRightString(w-40, 19, f'Página {document.page}')
             canvas.restoreState()
         doc.build(story, onFirstPage=decorate, onLaterPages=decorate)
@@ -1629,8 +1621,8 @@ class App(ctk.CTk):
             pass
         self.after(120, self.poll_events)
 
-    def records(self, items, show_open):
-        panel = ctk.CTkScrollableFrame(self.content, fg_color=PANEL, corner_radius=14)
+    def records(self, items, show_open, parent=None):
+        panel = ctk.CTkScrollableFrame((parent or self.content), fg_color=PANEL, corner_radius=14)
         panel.pack(fill='both', expand=True)
         if not items:
             ctk.CTkLabel(panel, text='Nenhuma conversão registrada.', text_color=MUTED).pack(pady=35)
