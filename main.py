@@ -86,7 +86,7 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('TavaresMusic | Studio Pro V1.6.2 Beta')
+        self.title('TavaresMusic | Studio Pro V1.6.3 Beta')
         # Um AppUserModelID próprio impede o agrupamento com o ícone genérico
         # do Python/Tk no Windows e permite a identidade do aplicativo na taskbar.
         if sys.platform == 'win32':
@@ -140,6 +140,8 @@ class App(ctk.CTk):
         self.fade_out_var = tk.BooleanVar(value=False)
         self.fade_duration_var = tk.StringVar(value='3')
         self.status_var = tk.StringVar(value='Pronto para converter arquivos autorizados.')
+        self.video_process = None
+        self.player_volume = 0.75
         self.player = None
         self.player_path = None
         self.player_paused = False
@@ -507,14 +509,17 @@ class App(ctk.CTk):
             self.records(self.history[:80], show_open=True, parent=music)
             actions = ctk.CTkFrame(activity, fg_color='transparent')
             actions.pack(fill='x', padx=12, pady=10)
+            ctk.CTkButton(actions, text='Pasta dos PDFs', width=125, fg_color='#285079',
+                          command=self.open_reports_folder).pack(side='right', padx=(0, 9))
             ctk.CTkButton(actions, text='Limpar histórico', fg_color='#6B3440',
                           command=lambda: self.clear_records('Minha Biblioteca')).pack(side='right')
             ctk.CTkLabel(actions, text='Os arquivos salvos não serão excluídos.',
                          text_color=MUTED).pack(side='left')
+            self.show_pdf_reports(activity)
             self.records(self.history, show_open=False, parent=activity)
         else:
             self.header('Configurações', 'Informações e diagnóstico do aplicativo.')
-            ctk.CTkLabel(self.content, text='TavaresMusic Studio Pro · V1.6.2 Beta',
+            ctk.CTkLabel(self.content, text='TavaresMusic Studio Pro · V1.6.3 Beta',
                          text_color=WHITE, font=('Segoe UI', 16, 'bold')).pack(anchor='w', pady=(0, 14))
             for name, executable in [('FFmpeg', 'ffmpeg'), ('yt-dlp', 'yt-dlp')]:
                 available = shutil.which(executable) is not None
@@ -1138,8 +1143,10 @@ class App(ctk.CTk):
             if fmt == 'MP4':
                 height = int(resolution[:-1]) if resolution.endswith('p') else None
                 limit = f'[height<={height}]' if height else ''
-                options['format'] = f'bv*[ext=mp4]{limit}+ba[ext=m4a]/bv*{limit}+ba/b[ext=mp4]{limit}/b{limit}'
+                options['format'] = f'bv*[height<={height}]+ba/b[height<={height}][vcodec!=none]' if height else 'bv*+ba/b[vcodec!=none]'
                 options['merge_output_format'] = 'mp4'
+                options['postprocessors'] = [{'key': 'FFmpegVideoRemuxer', 'preferedformat': 'mp4'}]
+                options['postprocessor_args'] = {'VideoRemuxer+ffmpeg_o': ['-movflags', '+faststart']}
             else:
                 options['format'] = 'bestaudio/best'
                 options['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': fmt.lower(), 'preferredquality': bitrate if fmt == 'MP3' else '0'}]
@@ -1738,11 +1745,8 @@ class App(ctk.CTk):
                 dialog.grab_release()
                 dialog.destroy()
                 self.status_var.set('PDF salvo em: ' + str(path))
-                if messagebox.askyesno('Relatório PDF', f'Relatório salvo em:\n{path}\n\nAbrir agora?'):
-                    try:
-                        os.startfile(str(path))
-                    except (OSError, AttributeError):
-                        webbrowser.open(path.as_uri())
+                if messagebox.askyesno('Relatório PDF', f'Relatório salvo em:\n{path}\n\nDeseja abrir a pasta do PDF?'):
+                    self.open_file(path)
             except Exception as exc:
                 messagebox.showerror('Falha ao gerar PDF', str(exc), parent=dialog)
         ctk.CTkButton(dialog, text='Relatório completo (baixadas + erros + pendentes)', height=39,
@@ -1938,7 +1942,7 @@ class App(ctk.CTk):
             if show_open:
                 actions = ctk.CTkFrame(row, fg_color='transparent')
                 actions.pack(anchor='e', padx=12, pady=(0, 9))
-                ctk.CTkButton(actions, text='▶ Ouvir', width=85, fg_color='#29435F', command=lambda p=path: self.play_library_file(p)).pack(side='left', padx=(0, 7))
+                ctk.CTkButton(actions, text='▶ Reproduzir', width=110, fg_color='#29435F', command=lambda p=path: self.play_library_file(p)).pack(side='left', padx=(0, 7))
                 ctk.CTkButton(actions, text='Abrir local', width=115, fg_color=ACCENT, command=lambda p=path: self.open_file(p)).pack(side='left')
 
     def open_file(self, path):
@@ -1955,6 +1959,32 @@ class App(ctk.CTk):
                 subprocess.Popen(['xdg-open', str(path.parent)])
         except OSError as exc:
             messagebox.showerror('Abrir local', str(exc))
+
+    def open_reports_folder(self):
+        reports = BASE / 'Relatorios'
+        reports.mkdir(parents=True, exist_ok=True)
+        try:
+            if sys.platform == 'win32':
+                os.startfile(str(reports))
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', str(reports)])
+            else:
+                subprocess.Popen(['xdg-open', str(reports)])
+        except OSError as exc:
+            messagebox.showerror('Relatórios PDF', str(exc))
+
+    def show_pdf_reports(self, parent):
+        reports = sorted((BASE / 'Relatorios').glob('*.pdf'), key=lambda f: f.stat().st_mtime, reverse=True) if (BASE / 'Relatorios').exists() else []
+        ctk.CTkLabel(parent, text='Relatórios PDF gerados', font=('Segoe UI', 14, 'bold'), text_color=WHITE).pack(anchor='w', padx=14, pady=(14, 5))
+        area = ctk.CTkScrollableFrame(parent, fg_color='#14273E', height=140)
+        area.pack(fill='x', padx=12, pady=(0, 12))
+        if not reports:
+            ctk.CTkLabel(area, text='Nenhum relatório PDF encontrado.', text_color=MUTED).pack(pady=12)
+        for pdf in reports[:60]:
+            line = ctk.CTkFrame(area, fg_color='transparent')
+            line.pack(fill='x', pady=3)
+            ctk.CTkLabel(line, text=pdf.name, anchor='w', text_color=WHITE).pack(side='left', fill='x', expand=True, padx=8)
+            ctk.CTkButton(line, text='Abrir local', width=100, command=lambda p=pdf: self.open_file(p)).pack(side='right', padx=4)
 
     def start_unified_download(self):
         if self.busy or self.queue_active:
@@ -1987,53 +2017,96 @@ class App(ctk.CTk):
     def build_library_player(self, parent):
         frame = ctk.CTkFrame(parent, fg_color='#14273E', corner_radius=12)
         frame.pack(fill='x', padx=12, pady=(0, 12))
-        self.library_now = ctk.CTkLabel(frame, text='Nenhuma música selecionada', text_color=WHITE, anchor='w')
-        self.library_now.pack(fill='x', padx=13, pady=(10, 0))
+        self.library_now = ctk.CTkLabel(frame, text='Selecione um arquivo para reproduzir', text_color=WHITE, anchor='w', font=('Segoe UI', 13, 'bold'))
+        self.library_now.pack(fill='x', padx=15, pady=(12, 2))
         self.library_slider = ctk.CTkSlider(frame, from_=0, to=100, command=self.seek_library_player)
-        self.library_slider.pack(fill='x', padx=13, pady=(7, 2))
+        self.library_slider.pack(fill='x', padx=15, pady=(7, 3))
         self.library_slider.set(0)
         self.library_slider.bind('<ButtonRelease-1>', self.commit_library_seek)
-        self.library_time = ctk.CTkLabel(frame, text='00:00 / 00:00', text_color=MUTED)
-        self.library_time.pack(anchor='w', padx=13)
-        bar = ctk.CTkFrame(frame, fg_color='transparent')
-        bar.pack(pady=(3, 10))
-        ctk.CTkButton(bar, text='▶ Play', width=95, command=self.resume_library_player).pack(side='left', padx=4)
-        ctk.CTkButton(bar, text='Ⅱ Pause', width=95, fg_color='#29435F', command=self.pause_library_player).pack(side='left', padx=4)
-        ctk.CTkButton(bar, text='■ Stop', width=95, fg_color='#29435F', command=self.stop_library_player).pack(side='left', padx=4)
+        row = ctk.CTkFrame(frame, fg_color='transparent')
+        row.pack(fill='x', padx=15, pady=(0, 12))
+        self.library_time = ctk.CTkLabel(row, text='00:00 / 00:00', text_color=MUTED, width=110)
+        self.library_time.pack(side='left')
+        ctk.CTkButton(row, text='▶ Reproduzir', width=110, command=self.resume_library_player).pack(side='left', padx=(12, 5))
+        ctk.CTkButton(row, text='Ⅱ Pausar', width=90, fg_color='#29435F', command=self.pause_library_player).pack(side='left', padx=5)
+        ctk.CTkButton(row, text='■ Parar', width=85, fg_color='#29435F', command=self.stop_library_player).pack(side='left', padx=5)
+        ctk.CTkLabel(row, text='Volume', text_color=MUTED).pack(side='left', padx=(24, 6))
+        volume = ctk.CTkSlider(row, from_=0, to=1, width=110, command=self.set_library_volume)
+        volume.set(self.player_volume)
+        volume.pack(side='left')
+        ctk.CTkLabel(frame, text='MP4: abre em uma janela de vídeo com controles próprios (espaço pausa, setas avançam).', text_color=MUTED).pack(anchor='w', padx=15, pady=(0, 9))
         self.update_library_player()
+
+    def _ffplay_path(self):
+        for directory in _CANDIDATE_BINS:
+            candidate = directory / ('ffplay.exe' if sys.platform == 'win32' else 'ffplay')
+            if candidate.is_file():
+                return str(candidate)
+        return shutil.which('ffplay')
 
     def play_library_file(self, path, offset=0):
         path = Path(path)
         if not path.is_file():
             messagebox.showwarning('Arquivo não encontrado', 'O arquivo foi movido ou excluído.')
             return
+        self.stop_library_player()
         try:
-            import pygame
-            if not pygame.mixer.get_init():
-                pygame.mixer.init()
-            pygame.mixer.music.load(str(path))
-            pygame.mixer.music.play(start=max(0, float(offset)))
-            self.player = pygame.mixer.music
+            if path.suffix.lower() in ('.mp4', '.mkv', '.mov', '.webm'):
+                ffplay = self._ffplay_path()
+                if not ffplay:
+                    raise RuntimeError('Player de vídeo não encontrado. Instale a versão compilada com FFplay.')
+                args = [ffplay, '-loglevel', 'error', '-autoexit', '-window_title', 'TavaresMusic | Vídeo', '-volume', str(round(self.player_volume * 100))]
+                if offset:
+                    args.extend(['-ss', str(float(offset))])
+                args.append(str(path))
+                self.video_process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                import pygame
+                if not pygame.mixer.get_init():
+                    pygame.mixer.init()
+                pygame.mixer.music.load(str(path))
+                pygame.mixer.music.set_volume(self.player_volume)
+                pygame.mixer.music.play(start=max(0, float(offset)))
+                self.player = pygame.mixer.music
             self.player_path = path
             self.player_offset = float(offset)
             self.player_started = __import__('time').monotonic()
             self.player_paused = False
-            if offset == 0:
-                try:
-                    from mutagen import File as AudioFile
-                    audio = AudioFile(str(path))
-                    self.player_duration = float(audio.info.length) if audio and audio.info else 0
-                except Exception:
-                    self.player_duration = 0
-            if hasattr(self, 'library_now') and self.library_now.winfo_exists():
-                self.library_now.configure(text=path.name)
+            try:
+                from mutagen import File as AudioFile
+                audio = AudioFile(str(path))
+                self.player_duration = float(audio.info.length) if audio and audio.info else 0
+            except Exception:
+                self.player_duration = 0
+            if not self.player_duration:
+                ffprobe = shutil.which('ffprobe')
+                if ffprobe:
+                    result = subprocess.run([ffprobe, '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', str(path)], capture_output=True, text=True, timeout=10)
+                    try:
+                        self.player_duration = float(result.stdout.strip())
+                    except ValueError:
+                        pass
+            self.library_now.configure(text=path.name)
         except Exception as exc:
             messagebox.showerror('Reprodução', 'Não foi possível reproduzir o arquivo: ' + str(exc))
 
+    def set_library_volume(self, value):
+        self.player_volume = float(value)
+        if self.player:
+            try:
+                self.player.set_volume(self.player_volume)
+            except Exception:
+                pass
+
     def resume_library_player(self):
         if self.player_path is None:
-            messagebox.showinfo('Biblioteca', 'Escolha uma música e clique em Ouvir.')
-        elif self.player_paused:
+            messagebox.showinfo('Biblioteca', 'Escolha um arquivo e clique em Reproduzir.')
+        elif self.video_process is not None:
+            if self.video_process.poll() is not None:
+                self.play_library_file(self.player_path)
+            else:
+                messagebox.showinfo('Vídeo', 'Use a janela do vídeo para pausar e retomar (tecla Espaço).')
+        elif self.player_paused and self.player:
             self.player.unpause()
             self.player_started = __import__('time').monotonic()
             self.player_paused = False
@@ -2041,12 +2114,18 @@ class App(ctk.CTk):
             self.play_library_file(self.player_path)
 
     def pause_library_player(self):
-        if self.player and not self.player_paused:
+        if self.video_process is not None and self.video_process.poll() is None:
+            messagebox.showinfo('Vídeo', 'Para pausar o MP4, use a tecla Espaço na janela do vídeo.')
+        elif self.player and not self.player_paused:
             self.player_offset += __import__('time').monotonic() - self.player_started
             self.player.pause()
             self.player_paused = True
 
     def stop_library_player(self):
+        if self.video_process is not None:
+            if self.video_process.poll() is None:
+                self.video_process.terminate()
+            self.video_process = None
         if self.player:
             self.player.stop()
         self.player_paused = False
@@ -2056,11 +2135,10 @@ class App(ctk.CTk):
 
     def seek_library_player(self, value):
         if self.player_path and self.player_duration > 0:
-            # Seeking is applied when the slider is released, to avoid restarting playback on every pixel.
             self._seek_requested = float(value)
 
     def commit_library_seek(self, _event=None):
-        if self.player_path and self.player_duration > 0 and self.player:
+        if self.player_path and self.player_duration > 0:
             position = self.library_slider.get() / 100 * self.player_duration
             was_paused = self.player_paused
             self.play_library_file(self.player_path, position)
@@ -2070,12 +2148,13 @@ class App(ctk.CTk):
     def update_library_player(self):
         if hasattr(self, 'library_slider') and self.library_slider.winfo_exists():
             if self.player_path and self.player_duration:
-                now = self.player_offset + (0 if self.player_paused or not self.player or not self.player.get_busy() else __import__('time').monotonic() - self.player_started)
+                active_video = self.video_process is not None and self.video_process.poll() is None
+                active_audio = self.player is not None and self.player.get_busy()
+                now = self.player_offset + (0 if self.player_paused or not (active_video or active_audio) else __import__('time').monotonic() - self.player_started)
                 now = min(self.player_duration, now)
                 self.library_slider.set(now / self.player_duration * 100)
                 self.library_time.configure(text=f'{int(now//60):02d}:{int(now%60):02d} / {int(self.player_duration//60):02d}:{int(self.player_duration%60):02d}')
             self.after(500, self.update_library_player)
-
 
 
 if __name__ == '__main__':
