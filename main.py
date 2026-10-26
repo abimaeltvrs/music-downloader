@@ -16,6 +16,7 @@ import urllib.request
 import math
 import struct
 from datetime import datetime
+from dj_playlist import PlaylistStore, analyse_track, export_set
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -85,7 +86,7 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('TavaresMusic | Studio Pro V1.6.0 Preview')
+        self.title('TavaresMusic | Studio Pro V1.6.1 Beta')
         # Um AppUserModelID próprio impede o agrupamento com o ícone genérico
         # do Python/Tk no Windows e permite a identidade do aplicativo na taskbar.
         if sys.platform == 'win32':
@@ -128,6 +129,8 @@ class App(ctk.CTk):
         self.transfer_stop_after_current = threading.Event()
         self.link_format = tk.StringVar(value='MP3')
         self.link_playlist = tk.BooleanVar(value=False)
+        self.playlist_preview = []
+        self.playlist_preview_url = ''
         self.playlist_save_mode = tk.StringVar(value=self.settings.get('playlist_save_mode', 'subfolder'))
         self.playlist_folder_name = tk.StringVar(value=self.settings.get('playlist_folder_name', ''))
         self.link_audio_quality = tk.StringVar(value='320')
@@ -137,6 +140,12 @@ class App(ctk.CTk):
         self.fade_out_var = tk.BooleanVar(value=False)
         self.fade_duration_var = tk.StringVar(value='3')
         self.status_var = tk.StringVar(value='Pronto para converter arquivos autorizados.')
+        self.dj_store = PlaylistStore(BASE / 'dj_playlists.json')
+        self.dj_tracks = []
+        self.dj_name = tk.StringVar(value='Meu Set')
+        self.dj_sort = tk.StringVar(value='BPM crescente')
+        self.dj_feedback = tk.StringVar(value='Adicione arquivos ou uma pasta para começar.')
+        self.dj_progress = tk.DoubleVar(value=0)
         self.build_shell()
         self.show_page('Conversor')
         self.after(120, self.poll_events)
@@ -182,7 +191,7 @@ class App(ctk.CTk):
         ctk.CTkLabel(brand, text='STUDIO PRO', font=('Segoe UI', 10, 'bold'),
                      text_color=MUTED).pack(pady=(0, 5))
         ctk.CTkLabel(self.sidebar, text='  FERRAMENTAS', font=('Segoe UI', 11, 'bold'), text_color='#6F95C1').pack(anchor='w', padx=18, pady=(0, 12))
-        for name, asset in [('Conversor','converter'),('Studio DJ','studio'),('Links','links'),('Minha Biblioteca','library'),('Configurações','settings')]:
+        for name, asset in [('Conversor','converter'),('Studio DJ','studio'),('Links','links'),('Minha Biblioteca','library'),('DJ Playlist','library'),('Configurações','settings')]:
             try:
                 ico = self.ui_icon(asset, (28,28))
             except Exception as exc:
@@ -443,6 +452,9 @@ class App(ctk.CTk):
             ctk.CTkOptionMenu(panel, values=['360p', '480p', '720p', '1080p', 'Melhor disponível'], variable=self.link_video_quality, width=220).pack(anchor='w', padx=20)
             ctk.CTkLabel(panel, text='Spotify: identifica faixa e oferece pesquisa em lojas de música. Não extrai áudio protegido.', text_color=MUTED, wraplength=700).pack(anchor='w', padx=20, pady=(10, 0))
             ctk.CTkCheckBox(panel, text='Baixar playlist inteira (quando permitido)', variable=self.link_playlist, fg_color=ACCENT).pack(anchor='w', padx=20, pady=(12, 0))
+            ctk.CTkButton(panel, text='CARREGAR FAIXAS DA PLAYLIST (ANTES DE BAIXAR)', command=self.preview_link_playlist, height=40, fg_color='#23527A').pack(fill='x', padx=20, pady=(10, 5))
+            self.playlist_preview_status = ctk.CTkLabel(panel, text='Selecione as faixas antes de iniciar o download.', text_color=MUTED)
+            self.playlist_preview_status.pack(anchor='w', padx=20)
             ctk.CTkLabel(panel, text='Organização dos downloads', text_color=WHITE, font=('Segoe UI', 13, 'bold')).pack(anchor='w', padx=20, pady=(15, 5))
             ctk.CTkRadioButton(panel, text='Salvar diretamente na pasta selecionada', variable=self.playlist_save_mode, value='direct').pack(anchor='w', padx=20, pady=3)
             ctk.CTkRadioButton(panel, text='Criar subpasta para a playlist', variable=self.playlist_save_mode, value='subfolder').pack(anchor='w', padx=20, pady=3)
@@ -475,6 +487,8 @@ class App(ctk.CTk):
             self.queue_progress.set(0)
             ctk.CTkLabel(panel, textvariable=self.status_var, text_color=MUTED, wraplength=690).pack(anchor='w', padx=20, pady=10)
             ctk.CTkLabel(panel, text='Vídeos privados ou indisponíveis serão ignorados. O relatório distingue falhas de itens ainda não tentados.', text_color=MUTED, wraplength=690).pack(anchor='w', padx=20, pady=(0, 12))
+        elif page == 'DJ Playlist':
+            self.build_dj_playlist()
         elif page == 'Minha Biblioteca':
             self.header('Minha Biblioteca', 'Músicas e atividades recentes em um só lugar.')
             tabs = ctk.CTkTabview(self.content, fg_color=PANEL, segmented_button_fg_color='#172A41',
@@ -496,7 +510,7 @@ class App(ctk.CTk):
             self.records(self.history, show_open=False, parent=activity)
         else:
             self.header('Configurações', 'Informações e diagnóstico do aplicativo.')
-            ctk.CTkLabel(self.content, text='TavaresMusic Studio Pro · V1.6.0 Preview',
+            ctk.CTkLabel(self.content, text='TavaresMusic Studio Pro · V1.6.1 Beta',
                          text_color=WHITE, font=('Segoe UI', 16, 'bold')).pack(anchor='w', pady=(0, 14))
             for name, executable in [('FFmpeg', 'ffmpeg'), ('yt-dlp', 'yt-dlp')]:
                 available = shutil.which(executable) is not None
@@ -511,6 +525,196 @@ class App(ctk.CTk):
                          text_color='#5FD3AC' if demucs_ok else MUTED).pack(anchor='w', pady=5)
             ctk.CTkLabel(self.content, text='A pasta de destino é selecionada em cada ferramenta.',
                          text_color=MUTED).pack(anchor='w', pady=(20, 0))
+
+    def build_dj_playlist(self):
+        self.header('DJ Playlist Inteligente', 'Importe, analise, organize e exporte seus sets sem alterar os originais.')
+        panel = ctk.CTkScrollableFrame(self.content, fg_color=PANEL, corner_radius=14)
+        panel.pack(fill='both', expand=True)
+        bar = ctk.CTkFrame(panel, fg_color='transparent')
+        bar.pack(fill='x', padx=18, pady=(18, 8))
+        ctk.CTkButton(bar, text='Adicionar músicas', command=self.dj_pick_files, width=155).pack(side='left', padx=(0, 8))
+        ctk.CTkButton(bar, text='Importar pasta', command=self.dj_pick_folder, width=135, fg_color='#254A70').pack(side='left', padx=(0, 8))
+        ctk.CTkButton(bar, text='Adicionar da Biblioteca', command=self.dj_import_history, width=185, fg_color='#254A70').pack(side='left')
+        ctk.CTkLabel(panel, text='Nome do set', text_color=MUTED).pack(anchor='w', padx=18, pady=(12, 3))
+        ctk.CTkEntry(panel, textvariable=self.dj_name).pack(fill='x', padx=18)
+        row = ctk.CTkFrame(panel, fg_color='transparent')
+        row.pack(fill='x', padx=18, pady=12)
+        ctk.CTkOptionMenu(row, variable=self.dj_sort, values=['BPM crescente', 'BPM decrescente', 'Tom (Camelot)', 'Energia crescente', 'Nome'], width=190).pack(side='left', padx=(0, 8))
+        ctk.CTkButton(row, text='Organizar set', command=self.dj_sort_tracks, width=140).pack(side='left', padx=(0, 8))
+        ctk.CTkButton(row, text='Analisar BPM e tom', command=self.dj_analyse, width=165, fg_color='#23527A').pack(side='left', padx=(0, 8))
+        ctk.CTkButton(row, text='Limpar lista', command=self.dj_clear, width=110, fg_color='#69384B').pack(side='left')
+        self.dj_bar = ctk.CTkProgressBar(panel, progress_color=ACCENT)
+        self.dj_bar.pack(fill='x', padx=18, pady=(0, 6))
+        self.dj_bar.set(self.dj_progress.get())
+        ctk.CTkLabel(panel, textvariable=self.dj_feedback, text_color=MUTED, anchor='w').pack(fill='x', padx=18, pady=(0, 10))
+        self.dj_list = ctk.CTkScrollableFrame(panel, fg_color='#091827', height=310)
+        self.dj_list.pack(fill='both', expand=True, padx=18, pady=(0, 12))
+        self.dj_render()
+        actions = ctk.CTkFrame(panel, fg_color='transparent')
+        actions.pack(fill='x', padx=18, pady=(0, 20))
+        ctk.CTkButton(actions, text='Salvar playlist virtual', command=self.dj_save, width=190).pack(side='left', padx=(0, 8))
+        ctk.CTkButton(actions, text='Abrir playlist salva', command=self.dj_load, width=170, fg_color='#254A70').pack(side='left', padx=(0, 8))
+        ctk.CTkButton(actions, text='Exportar pasta + M3U8 + PDF', command=self.dj_export, width=230, fg_color='#087EFF').pack(side='left')
+
+    def dj_render(self):
+        if not hasattr(self, 'dj_list') or not self.dj_list.winfo_exists():
+            return
+        for widget in self.dj_list.winfo_children():
+            widget.destroy()
+        if not self.dj_tracks:
+            ctk.CTkLabel(self.dj_list, text='Nenhuma música adicionada. Você pode importar arquivos locais ou da Biblioteca.', text_color=MUTED).pack(pady=35)
+            return
+        for idx, track in enumerate(self.dj_tracks):
+            row = ctk.CTkFrame(self.dj_list, fg_color='#15283E', corner_radius=8)
+            row.pack(fill='x', padx=6, pady=3)
+            ctk.CTkLabel(row, text=f'{idx+1:02d}', width=36, text_color='#63B7FF').pack(side='left', padx=6)
+            ctk.CTkLabel(row, text=track['name'][:75], anchor='w', text_color=WHITE).pack(side='left', fill='x', expand=True, padx=6)
+            ctk.CTkLabel(row, text=f"{track.get('bpm') or '—'} BPM  |  {track.get('camelot') or '—'}  |  {track.get('genre') or '—'}", width=245, text_color=MUTED).pack(side='left')
+            ctk.CTkButton(row, text='↑', width=29, command=lambda i=idx: self.dj_move(i,-1)).pack(side='left', padx=2, pady=6)
+            ctk.CTkButton(row, text='↓', width=29, command=lambda i=idx: self.dj_move(i,1)).pack(side='left', padx=2)
+            ctk.CTkButton(row, text='×', width=29, fg_color='#72394B', command=lambda i=idx: self.dj_remove(i)).pack(side='left', padx=(2, 6))
+
+    def dj_add_paths(self, paths):
+        existing = {t['path'].lower() for t in self.dj_tracks}
+        added = 0
+        for path in paths:
+            path = Path(path)
+            if path.suffix.lower() not in ('.mp3','.wav','.flac','.m4a','.aac','.ogg','.opus','.aiff') or not path.is_file():
+                continue
+            key = str(path.resolve())
+            if key.lower() not in existing:
+                self.dj_tracks.append({'path':key,'name':path.stem,'bpm':None,'camelot':None,'genre':'','energy':None})
+                existing.add(key.lower())
+                added += 1
+        self.dj_feedback.set(f'{added} adicionadas · {len(self.dj_tracks)} faixas no set.')
+        self.dj_render()
+
+    def dj_pick_files(self):
+        self.dj_add_paths(filedialog.askopenfilenames(title='Adicionar músicas', filetypes=[('Áudio','*.mp3 *.wav *.flac *.m4a *.aac *.ogg *.opus *.aiff')]))
+
+    def dj_pick_folder(self):
+        folder = filedialog.askdirectory(title='Importar pasta de músicas')
+        if folder:
+            self.dj_add_paths(x for x in Path(folder).rglob('*') if x.is_file())
+
+    def dj_import_history(self):
+        paths = []
+        for record in self.history:
+            if isinstance(record,dict):
+                for key in ('path','file','output','filepath'):
+                    value = record.get(key)
+                    if isinstance(value,str):
+                        paths.append(value)
+        self.dj_add_paths(paths)
+
+    def dj_move(self, index, offset):
+        target=index+offset
+        if 0<=target<len(self.dj_tracks):
+            self.dj_tracks[index],self.dj_tracks[target]=self.dj_tracks[target],self.dj_tracks[index]
+            self.dj_render()
+
+    def dj_remove(self, index):
+        self.dj_tracks.pop(index)
+        self.dj_render()
+
+    def dj_clear(self):
+        self.dj_tracks.clear()
+        self.dj_progress.set(0)
+        self.dj_feedback.set('Lista limpa; arquivos originais preservados.')
+        self.dj_render()
+
+    def dj_sort_tracks(self):
+        mode=self.dj_sort.get()
+        if mode=='BPM crescente':
+            self.dj_tracks.sort(key=lambda t:(t.get('bpm') is None,t.get('bpm') or 0))
+        elif mode=='BPM decrescente':
+            self.dj_tracks.sort(key=lambda t:(t.get('bpm') is None,-(t.get('bpm') or 0)))
+        elif mode=='Tom (Camelot)':
+            self.dj_tracks.sort(key=lambda t:(not bool(t.get('camelot')),t.get('camelot') or ''))
+        elif mode=='Energia crescente':
+            self.dj_tracks.sort(key=lambda t:(t.get('energy') is None,t.get('energy') or 0))
+        else:
+            self.dj_tracks.sort(key=lambda t:t['name'].casefold())
+        self.dj_render()
+        self.dj_feedback.set('Set organizado. Você ainda pode ajustar a ordem manualmente.')
+
+    def dj_analyse(self):
+        if not self.dj_tracks:
+            return
+        if getattr(self,'dj_analysing',False):
+            return
+        self.dj_analysing=True
+        paths=[t['path'] for t in self.dj_tracks]
+        def worker():
+            for i,path in enumerate(paths):
+                try:
+                    data=analyse_track(path)
+                    self.after(0, lambda p=path,d=data,j=i: self.dj_analyse_result(p,d,j,len(paths)))
+                except Exception as exc:
+                    self.after(0, lambda j=i,e=str(exc): self.dj_feedback.set(f'Erro na faixa {j+1}: {e[:130]}'))
+            self.after(0,lambda: setattr(self,'dj_analysing',False))
+        threading.Thread(target=worker,daemon=True).start()
+
+    def dj_analyse_result(self,path,data,index,total):
+        for track in self.dj_tracks:
+            if track['path']==path:
+                track.update(data)
+                break
+        self.dj_progress.set((index+1)/total)
+        if hasattr(self,'dj_bar') and self.dj_bar.winfo_exists():
+            self.dj_bar.set((index+1)/total)
+        self.dj_feedback.set(f'Analisadas {index+1}/{total} músicas. BPM/tom são estimativas.')
+        if self.page=='DJ Playlist':
+            self.dj_render()
+
+    def dj_save(self):
+        if not self.dj_tracks:
+            messagebox.showwarning('DJ Playlist','Adicione músicas primeiro.')
+            return
+        self.dj_store.save(self.dj_name.get(),self.dj_tracks)
+        self.dj_feedback.set('Playlist virtual salva. Nenhum arquivo foi movido.')
+
+    def dj_load(self):
+        names=self.dj_store.names()
+        if not names:
+            messagebox.showinfo('DJ Playlist','Nenhuma playlist virtual salva.')
+            return
+        dialog=ctk.CTkToplevel(self)
+        dialog.title('Abrir playlist virtual')
+        dialog.geometry('440x360')
+        dialog.transient(self)
+        ctk.CTkLabel(dialog,text='Selecione um set salvo',font=('Segoe UI',17,'bold')).pack(pady=16)
+        for name in names:
+            ctk.CTkButton(dialog,text=name,command=lambda n=name:self.dj_load_named(n,dialog)).pack(fill='x',padx=22,pady=4)
+
+    def dj_load_named(self,name,dialog):
+        self.dj_name.set(name)
+        self.dj_tracks=self.dj_store.load(name)
+        dialog.destroy()
+        self.dj_render()
+        self.dj_feedback.set(f'Set {name} carregado · {len(self.dj_tracks)} músicas.')
+
+    def dj_export(self):
+        if not self.dj_tracks:
+            messagebox.showwarning('DJ Playlist','Adicione músicas primeiro.')
+            return
+        folder=filedialog.askdirectory(title='Escolha onde criar a pasta do set')
+        if not folder:
+            return
+        name=self.dj_name.get()
+        tracks=[dict(t) for t in self.dj_tracks]
+        self.dj_feedback.set('Exportando músicas e relatório...')
+        def worker():
+            try:
+                result=export_set(name,tracks,folder)
+                self.after(0,lambda: self.dj_export_done(result))
+            except Exception as exc:
+                self.after(0,lambda e=str(exc):messagebox.showerror('Exportação',e))
+        threading.Thread(target=worker,daemon=True).start()
+
+    def dj_export_done(self,result):
+        self.dj_feedback.set(f'Pacote exportado: {result}')
+        messagebox.showinfo('DJ Playlist','Pacote criado em:\n'+str(result))
 
     def file_summary(self):
         if not self.files:
@@ -690,13 +894,22 @@ class App(ctk.CTk):
         except OSError as exc:
             messagebox.showerror('Pasta invalida', str(exc))
             return
+        selection = None
+        if self.link_playlist.get() and self.playlist_preview_url != url:
+            messagebox.showwarning('Playlist', 'Primeiro clique em CARREGAR FAIXAS DA PLAYLIST, selecione as músicas e confirme.')
+            return
+        if self.link_playlist.get() and self.playlist_preview_url == url:
+            selection = [dict(x) for x, selected in self.playlist_preview if selected.get()]
+            if not selection:
+                messagebox.showwarning('Playlist', 'Selecione ao menos uma faixa.')
+                return
         self.had_error = False
         self.transfer_cancel.clear()
         self.transfer_stop_after_current.clear()
         self.transfer_pause.set()
         self.busy = True
         self.link_button.configure(state='disabled')
-        threading.Thread(target=self.link_worker, args=(url, folder, self.link_format.get(), self.link_playlist.get(), self.link_audio_quality.get(), self.link_video_quality.get()), daemon=True).start()
+        threading.Thread(target=self.link_worker, args=(url, folder, self.link_format.get(), self.link_playlist.get(), self.link_audio_quality.get(), self.link_video_quality.get(), False, None, None, selection), daemon=True).start()
 
     def lookup_spotify(self, url):
         """Identify Spotify metadata and let the user select a YouTube result manually."""
@@ -723,7 +936,70 @@ class App(ctk.CTk):
                 self.after(0, lambda msg=str(exc): messagebox.showerror('Spotify', 'Não foi possível identificar o link: ' + msg))
         threading.Thread(target=work, daemon=True).start()
 
-    def link_worker(self, url, folder, fmt, playlist, bitrate='320', resolution='1080p', queue_item=False, save_mode=None, subfolder=None):
+    def preview_link_playlist(self):
+        url = self.url_var.get().strip()
+        if not url.startswith(('http://','https://')):
+            messagebox.showwarning('Playlist','Cole primeiro o link da playlist.')
+            return
+        self.playlist_preview_status.configure(text='Consultando lista de faixas...')
+        def worker():
+            try:
+                import yt_dlp
+                with yt_dlp.YoutubeDL({'quiet':True,'no_warnings':True,'extract_flat':'in_playlist',
+                                      'skip_download':True,'ignoreerrors':True,'noplaylist':False}) as ydl:
+                    info=ydl.extract_info(url,download=False)
+                entries=[x for x in (info or {}).get('entries',[]) if isinstance(x,dict)]
+                if not entries:
+                    raise ValueError('Nenhuma faixa encontrada. Verifique se o link é de uma playlist pública.')
+                self.after(0,lambda:self.show_playlist_preview(url,info.get('title','Playlist'),entries))
+            except Exception as exc:
+                self.after(0,lambda e=str(exc):self.playlist_preview_status.configure(text='Erro ao carregar: '+e[:160]))
+        threading.Thread(target=worker,daemon=True).start()
+
+    def show_playlist_preview(self,url,title,entries):
+        self.playlist_preview_url=url
+        self.link_playlist.set(True)
+        win=ctk.CTkToplevel(self)
+        win.title('Selecionar músicas da playlist')
+        win.geometry('800x650')
+        win.transient(self)
+        ctk.CTkLabel(win,text=title[:90],font=('Segoe UI',20,'bold')).pack(pady=(15,4))
+        count=tk.StringVar()
+        ctk.CTkLabel(win,textvariable=count,text_color=MUTED).pack()
+        search=tk.StringVar()
+        ctk.CTkEntry(win,textvariable=search,placeholder_text='Pesquisar músicas...').pack(fill='x',padx=20,pady=10)
+        scroll=ctk.CTkScrollableFrame(win,fg_color=PANEL)
+        scroll.pack(fill='both',expand=True,padx=20,pady=5)
+        self.playlist_preview=[(dict(e),tk.BooleanVar(value=True)) for e in entries]
+        def update_count():
+            count.set(f'{sum(v.get() for _,v in self.playlist_preview)} de {len(entries)} selecionadas')
+        def draw(*_):
+            for child in scroll.winfo_children():
+                child.destroy()
+            term=search.get().casefold()
+            for i,(entry,selected) in enumerate(self.playlist_preview):
+                title_text=str(entry.get('title') or f'Faixa {i+1}')
+                if term not in title_text.casefold():
+                    continue
+                ctk.CTkCheckBox(scroll,text=f'{i+1:03d}  {title_text[:100]}',variable=selected,command=update_count).pack(fill='x',padx=8,pady=6)
+            update_count()
+        search.trace_add('write',draw)
+        actions=ctk.CTkFrame(win,fg_color='transparent')
+        actions.pack(fill='x',padx=20,pady=12)
+        def select_all(value):
+            for _,selected in self.playlist_preview:
+                selected.set(value)
+            draw()
+        ctk.CTkButton(actions,text='Selecionar todas',width=130,command=lambda:select_all(True)).pack(side='left',padx=4)
+        ctk.CTkButton(actions,text='Desmarcar todas',width=140,command=lambda:select_all(False)).pack(side='left',padx=4)
+        def confirm():
+            update_count()
+            self.playlist_preview_status.configure(text=count.get()+' · Pronto para baixar. Escolha formato e destino.')
+            win.destroy()
+        ctk.CTkButton(actions,text='Confirmar seleção',width=170,command=confirm).pack(side='right',padx=4)
+        draw()
+
+    def link_worker(self, url, folder, fmt, playlist, bitrate='320', resolution='1080p', queue_item=False, save_mode=None, subfolder=None, selected_entries=None):
         """Record completed files, including individual items from playlists."""
         try:
             import yt_dlp
@@ -759,7 +1035,9 @@ class App(ctk.CTk):
             # Unique per operation: no risk of deleting another transfer's data.
             session_tmp = BASE / 'transfer_tmp' / uuid.uuid4().hex
             session_tmp.mkdir(parents=True, exist_ok=False)
-            if playlist:
+            if playlist and selected_entries is not None:
+                playlist_entries = selected_entries
+            elif playlist:
                 # Flat metadata listing keeps track of unavailable playlist entries.
                 try:
                     with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True,
@@ -811,7 +1089,21 @@ class App(ctk.CTk):
                     pass
                 if data.get('status') == 'finished':
                     remember(info)
-                self.events.put(('transfer_detail', f"{info.get('title') or 'Música'} • {data.get('status', '')}"))
+                transferred = data.get('downloaded_bytes') or 0
+                total = data.get('total_bytes') or data.get('total_bytes_estimate') or 0
+                percent = round(100*transferred/total) if total else None
+                speed = data.get('speed')
+                eta = data.get('eta')
+                detail = f"{info.get('title') or 'Música'} · {percent if percent is not None else '?'}%"
+                if speed:
+                    detail += f' · {speed/1048576:.1f} MB/s'
+                if eta is not None:
+                    detail += f' · ~{int(eta)} s restantes'
+                if data.get('status') == 'finished':
+                    detail += ' · Convertendo/finalizando...'
+                self.events.put(('transfer_detail', detail))
+                if total:
+                    self.events.put(('transfer_progress', min(1.0,transferred/total)))
 
             def postprocess_hook(data):
                 if data.get('status') == 'finished':
@@ -1589,6 +1881,9 @@ class App(ctk.CTk):
                     self.status_var.set('Erro: ' + value)
                 elif kind == 'playlist_report':
                     self.show_playlist_report_options(value)
+                elif kind == 'transfer_progress':
+                    if self.page == 'Links' and hasattr(self, 'transfer_progress') and self.transfer_progress.winfo_exists():
+                        self.transfer_progress.set(value)
                 elif kind == 'transfer_detail':
                     if self.page == 'Links' and hasattr(self, 'transfer_detail') and self.transfer_detail.winfo_exists():
                         self.transfer_detail.configure(text=value[:110])
