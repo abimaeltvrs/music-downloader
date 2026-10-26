@@ -86,7 +86,7 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('TavaresMusic | Studio Pro V1.6.4 Beta')
+        self.title('TavaresMusic | Studio Pro V1.6.5 Beta')
         # Um AppUserModelID próprio impede o agrupamento com o ícone genérico
         # do Python/Tk no Windows e permite a identidade do aplicativo na taskbar.
         if sys.platform == 'win32':
@@ -141,6 +141,7 @@ class App(ctk.CTk):
         self.fade_duration_var = tk.StringVar(value='3')
         self.status_var = tk.StringVar(value='Pronto para converter arquivos autorizados.')
         self.video_process = None
+        self.video_external = False
         self.player_volume = 0.75
         self.player = None
         self.player_path = None
@@ -519,7 +520,7 @@ class App(ctk.CTk):
             self.records(self.history, show_open=False, parent=activity)
         else:
             self.header('Configurações', 'Informações e diagnóstico do aplicativo.')
-            ctk.CTkLabel(self.content, text='TavaresMusic Studio Pro · V1.6.4 Beta',
+            ctk.CTkLabel(self.content, text='TavaresMusic Studio Pro · V1.6.5 Beta',
                          text_color=WHITE, font=('Segoe UI', 16, 'bold')).pack(anchor='w', pady=(0, 14))
             for name, executable in [('FFmpeg', 'ffmpeg'), ('yt-dlp', 'yt-dlp')]:
                 available = shutil.which(executable) is not None
@@ -1381,6 +1382,8 @@ class App(ctk.CTk):
     def stems_worker(self, files, folder, mode, fmt, start, end, quality='Rápido'):
         ffmpeg = shutil.which('ffmpeg')
         try:
+            if not ffmpeg:
+                raise RuntimeError('FFmpeg não encontrado: necessário para o Studio DJ.')
             for idx, src in enumerate(files):
                 self.events.put(('status', f'Separando {idx+1}/{len(files)}: {src.name} (aguarde)...'))
                 with tempfile.TemporaryDirectory(prefix='music_stems_') as td:
@@ -2071,7 +2074,7 @@ class App(ctk.CTk):
         volume = ctk.CTkSlider(row, from_=0, to=1, width=110, command=self.set_library_volume)
         volume.set(self.player_volume)
         volume.pack(side='left')
-        ctk.CTkLabel(frame, text='MP4: abre em uma janela de vídeo com controles próprios (espaço pausa, setas avançam).', text_color=MUTED).pack(anchor='w', padx=15, pady=(0, 9))
+        ctk.CTkLabel(frame, text='MP4: abre em janela própria; se FFplay falhar, usa o player padrão do Windows.', text_color=MUTED).pack(anchor='w', padx=15, pady=(0, 9))
         self.update_library_player()
 
     def _ffplay_path(self):
@@ -2080,6 +2083,16 @@ class App(ctk.CTk):
             if candidate.is_file():
                 return str(candidate)
         return shutil.which('ffplay')
+
+    def _open_video_in_windows(self, path):
+        """Reliable fallback when FFplay cannot launch on a Windows installation."""
+        if sys.platform != 'win32':
+            raise RuntimeError('FFplay indisponível e não há player padrão do Windows.')
+        os.startfile(str(path))
+        self.video_external = True
+        messagebox.showinfo('Reprodução de vídeo',
+            'Vídeo aberto no player padrão do Windows.\n'
+            'Os controles de pausa, volume e avanço ficam nessa janela.')
 
     def play_library_file(self, path, offset=0):
         path = Path(path)
@@ -2090,13 +2103,32 @@ class App(ctk.CTk):
         try:
             if path.suffix.lower() in ('.mp4', '.mkv', '.mov', '.webm'):
                 ffplay = self._ffplay_path()
-                if not ffplay:
-                    raise RuntimeError('Player de vídeo não encontrado. Instale a versão compilada com FFplay.')
-                args = [ffplay, '-loglevel', 'error', '-autoexit', '-window_title', 'TavaresMusic | Vídeo', '-volume', str(round(self.player_volume * 100))]
-                if offset:
-                    args.extend(['-ss', str(float(offset))])
-                args.append(str(path))
-                self.video_process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if ffplay:
+                    args = [ffplay, '-hide_banner', '-loglevel', 'error', '-autoexit',
+                            '-window_title', 'TavaresMusic | Vídeo', '-volume',
+                            str(round(self.player_volume * 100))]
+                    if offset:
+                        args.extend(['-ss', str(float(offset))])
+                    args.append(str(path))
+                    try:
+                        self.video_process = subprocess.Popen(args, stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                        # A process that immediately exits did not open a video window.
+                        import time
+                        time.sleep(0.35)
+                        if self.video_process.poll() is not None:
+                            detail = self.video_process.stderr.read().decode('utf-8', errors='replace')[-800:]
+                            self.video_process = None
+                            if sys.platform == 'win32':
+                                self._open_video_in_windows(path)
+                            else:
+                                raise RuntimeError('FFplay encerrou ao iniciar: ' + detail)
+                    except OSError:
+                        self.video_process = None
+                        self._open_video_in_windows(path)
+                else:
+                    self._open_video_in_windows(path)
             else:
                 import pygame
                 if not pygame.mixer.get_init():
@@ -2118,7 +2150,9 @@ class App(ctk.CTk):
             if not self.player_duration:
                 ffprobe = shutil.which('ffprobe')
                 if ffprobe:
-                    result = subprocess.run([ffprobe, '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', str(path)], capture_output=True, text=True, timeout=10)
+                    result = subprocess.run([ffprobe, '-v', 'error', '-show_entries',
+                        'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1',
+                        str(path)], capture_output=True, text=True, timeout=10)
                     try:
                         self.player_duration = float(result.stdout.strip())
                     except ValueError:
@@ -2138,6 +2172,8 @@ class App(ctk.CTk):
     def resume_library_player(self):
         if self.player_path is None:
             messagebox.showinfo('Biblioteca', 'Escolha um arquivo e clique em Reproduzir.')
+        elif self.video_external:
+            messagebox.showinfo('Vídeo', 'O vídeo está aberto no player padrão do Windows.')
         elif self.video_process is not None:
             if self.video_process.poll() is not None:
                 self.play_library_file(self.player_path)
@@ -2151,6 +2187,9 @@ class App(ctk.CTk):
             self.play_library_file(self.player_path)
 
     def pause_library_player(self):
+        if self.video_external:
+            messagebox.showinfo('Vídeo', 'Use os controles da janela do player do Windows.')
+            return
         if self.video_process is not None and self.video_process.poll() is None:
             messagebox.showinfo('Vídeo', 'Para pausar o MP4, use a tecla Espaço na janela do vídeo.')
         elif self.player and not self.player_paused:
@@ -2159,6 +2198,7 @@ class App(ctk.CTk):
             self.player_paused = True
 
     def stop_library_player(self):
+        self.video_external = False
         if self.video_process is not None:
             if self.video_process.poll() is None:
                 self.video_process.terminate()
@@ -2176,6 +2216,9 @@ class App(ctk.CTk):
 
     def commit_library_seek(self, _event=None):
         if self.player_path and self.player_duration > 0:
+            if self.video_external:
+                messagebox.showinfo('Vídeo', 'Use a linha do tempo na janela do player do Windows.')
+                return
             position = self.library_slider.get() / 100 * self.player_duration
             was_paused = self.player_paused
             self.play_library_file(self.player_path, position)
@@ -2185,7 +2228,7 @@ class App(ctk.CTk):
     def update_library_player(self):
         if hasattr(self, 'library_slider') and self.library_slider.winfo_exists():
             if self.player_path and self.player_duration:
-                active_video = self.video_process is not None and self.video_process.poll() is None
+                active_video = (self.video_process is not None and self.video_process.poll() is None) or self.video_external
                 active_audio = self.player is not None and self.player.get_busy()
                 now = self.player_offset + (0 if self.player_paused or not (active_video or active_audio) else __import__('time').monotonic() - self.player_started)
                 now = min(self.player_duration, now)
