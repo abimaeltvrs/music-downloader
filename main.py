@@ -86,7 +86,7 @@ def parse_time(value):
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title('TavaresMusic | Studio Pro V1.6.3 Beta')
+        self.title('TavaresMusic | Studio Pro V1.6.4 Beta')
         # Um AppUserModelID próprio impede o agrupamento com o ícone genérico
         # do Python/Tk no Windows e permite a identidade do aplicativo na taskbar.
         if sys.platform == 'win32':
@@ -519,7 +519,7 @@ class App(ctk.CTk):
             self.records(self.history, show_open=False, parent=activity)
         else:
             self.header('Configurações', 'Informações e diagnóstico do aplicativo.')
-            ctk.CTkLabel(self.content, text='TavaresMusic Studio Pro · V1.6.3 Beta',
+            ctk.CTkLabel(self.content, text='TavaresMusic Studio Pro · V1.6.4 Beta',
                          text_color=WHITE, font=('Segoe UI', 16, 'bold')).pack(anchor='w', pady=(0, 14))
             for name, executable in [('FFmpeg', 'ffmpeg'), ('yt-dlp', 'yt-dlp')]:
                 available = shutil.which(executable) is not None
@@ -1143,7 +1143,7 @@ class App(ctk.CTk):
             if fmt == 'MP4':
                 height = int(resolution[:-1]) if resolution.endswith('p') else None
                 limit = f'[height<={height}]' if height else ''
-                options['format'] = f'bv*[height<={height}]+ba/b[height<={height}][vcodec!=none]' if height else 'bv*+ba/b[vcodec!=none]'
+                options['format'] = (f'bv*[vcodec^=avc1][height<={height}]+ba[acodec^=mp4a]/b[vcodec^=avc1][height<={height}]/bv*[height<={height}]+ba/b[height<={height}][vcodec!=none]' if height else 'bv*[vcodec^=avc1]+ba[acodec^=mp4a]/b[vcodec^=avc1]/bv*+ba/b[vcodec!=none]')
                 options['merge_output_format'] = 'mp4'
                 options['postprocessors'] = [{'key': 'FFmpegVideoRemuxer', 'preferedformat': 'mp4'}]
                 options['postprocessor_args'] = {'VideoRemuxer+ffmpeg_o': ['-movflags', '+faststart']}
@@ -1206,6 +1206,43 @@ class App(ctk.CTk):
                 else:
                     raise
             cancelled = cancelled or self.transfer_stop_after_current.is_set()
+            # Windows Media Player requires H.264 video and AAC audio. An MP4
+            # container alone does NOT guarantee compatible codecs (AV1/Opus).
+            if fmt == 'MP4':
+                ffprobe_bin = Path(ffmpeg_path).with_name('ffprobe.exe' if sys.platform == 'win32' else 'ffprobe')
+                if not ffprobe_bin.is_file():
+                    found_probe = shutil.which('ffprobe')
+                    ffprobe_bin = Path(found_probe) if found_probe else ffprobe_bin
+                if not ffprobe_bin.is_file():
+                    raise RuntimeError('FFprobe ausente: não é possível validar os codecs do MP4.')
+                fresh_mp4s = [f for f in folder.glob('*.mp4') if str(f.resolve()) not in prior_files or prior_files[str(f.resolve())] != f.stat().st_mtime_ns]
+                for output in fresh_mp4s:
+                    probe = subprocess.run([str(ffprobe_bin), '-v', 'error', '-show_entries', 'stream=codec_type,codec_name', '-of', 'json', str(output)], capture_output=True, text=True, timeout=35)
+                    if probe.returncode:
+                        failed_messages.append(f'{output.name}: FFprobe não conseguiu analisar o vídeo: {probe.stderr[:200]}')
+                        continue
+                    streams = json.loads(probe.stdout).get('streams', [])
+                    vcodec = next((x.get('codec_name') for x in streams if x.get('codec_type') == 'video'), None)
+                    acodec = next((x.get('codec_name') for x in streams if x.get('codec_type') == 'audio'), None)
+                    if not vcodec or not acodec:
+                        failed_messages.append(f'{output.name}: arquivo sem vídeo ou sem áudio; não será registrado como concluído.')
+                        output.rename(output.with_suffix('.incompativel'))
+                        continue
+                    if vcodec != 'h264' or acodec != 'aac':
+                        self.events.put(('status', f'Convertendo para MP4 compatível com Windows: {output.name} (H.264/AAC)...'))
+                        converted = output.with_name(output.stem + '.windows-temp.mp4')
+                        command = [str(ffmpeg_path), '-hide_banner', '-loglevel', 'error', '-y', '-i', str(output),
+                                   '-map', '0:v:0', '-map', '0:a:0', '-c:v', 'libx264' if vcodec != 'h264' else 'copy',
+                                   '-pix_fmt', 'yuv420p', '-preset', 'fast', '-crf', '22', '-c:a', 'aac' if acodec != 'aac' else 'copy',
+                                   '-b:a', '192k', '-movflags', '+faststart', str(converted)]
+                        result = subprocess.run(command, capture_output=True, text=True)
+                        if result.returncode or not converted.is_file() or converted.stat().st_size == 0:
+                            converted.unlink(missing_ok=True)
+                            failed_messages.append(f'{output.name}: conversão H.264/AAC falhou: {result.stderr[-350:]}')
+                            output.rename(output.with_suffix('.incompativel'))
+                            continue
+                        converted.replace(output)
+                    self.events.put(('status', f'MP4 validado para Windows: {output.name}'))
             # yt-dlp has released the download files; remove only this transfer's
             # temporary folder, whether cancelled or successfully completed.
             # Report is queued before scratch cleanup, keeping UI responsive.
